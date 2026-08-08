@@ -1,0 +1,380 @@
+﻿Ultralytics 8.4.116  Python-3.13.9 torch-2.11.0+cpu CPU (AMD Ryzen 7 7735HS with Radeon Graphics)
+[34m[1mengine\trainer: [0magnostic_nms=False, amp=False, angle=1.0, augment=False, auto_augment=randaugment, batch=8, bgr=0.0, box=7.5, cache=False, cfg=None, channels_last=False, classes=None, close_mosaic=10, cls=0.5, cls_pw=0.0, cls_remap=True, compile=False, conf=None, copy_paste=0.0, copy_paste_mode=flip, cos_lr=False, cutmix=0.0, data=coco128, degrees=0.0, deterministic=True, device=cpu, dfl=1.5, dgrad=0.5, dis=6.0, distill_model=None, dlam=1.0, dlog=1.0, dnn=False, dropout=0.0, dynamic=False, embed=None, end2end=None, epochs=3, erasing=0.4, exist_ok=True, fliplr=0.5, flipud=0.0, format=torchscript, fraction=1.0, freeze=None, hsv_h=0.015, hsv_s=0.7, hsv_v=0.4, imgsz=192, iou=0.7, keras=False, kobj=1.0, line_width=None, lr0=0.01, lrf=0.01, mask_ratio=4, max_det=300, mixup=0.0, mode=train, model=yolov8n.pt, momentum=0.937, mosaic=1.0, multi_scale=0.0, name=fp32, nbs=64, nms=False, opset=None, optimize=False, optimizer=auto, overlap_mask=True, patience=100, perspective=0.0, plots=True, pose=12.0, pretrained=True, profile=False, project=out, quantize=None, rect=False, resume=False, retina_masks=False, rle=1.0, save=True, save_conf=False, save_crop=False, save_dir=C:\Users\lenovo\runs\detect\out\fp32, save_frames=False, save_json=False, save_period=-1, save_txt=False, scale=0.5, seed=0, shear=0.0, show=False, show_boxes=True, show_conf=True, show_labels=True, simplify=True, single_cls=False, source=None, split=val, stream_buffer=False, task=detect, time=None, tracker=tracktrack.yaml, translate=0.1, val=True, verbose=False, vid_stride=1, visualize=False, warmup_bias_lr=0.1, warmup_epochs=3.0, warmup_momentum=0.8, weight_decay=0.0005, workers=0, workspace=None
+
+                   from  n    params  module                                       arguments                     
+  0                  -1  1       464  ultralytics.nn.modules.conv.Conv             [3, 16, 3, 2]                 
+  1                  -1  1      4672  ultralytics.nn.modules.conv.Conv             [16, 32, 3, 2]                
+  2                  -1  1      7360  ultralytics.nn.modules.block.C2f             [32, 32, 1, True]             
+  3                  -1  1     18560  ultralytics.nn.modules.conv.Conv             [32, 64, 3, 2]                
+  4                  -1  2     49664  ultralytics.nn.modules.block.C2f             [64, 64, 2, True]             
+  5                  -1  1     73984  ultralytics.nn.modules.conv.Conv             [64, 128, 3, 2]               
+  6                  -1  2    197632  ultralytics.nn.modules.block.C2f             [128, 128, 2, True]           
+  7                  -1  1    295424  ultralytics.nn.modules.conv.Conv             [128, 256, 3, 2]              
+  8                  -1  1    460288  ultralytics.nn.modules.block.C2f             [256, 256, 1, True]           
+  9                  -1  1    164608  ultralytics.nn.modules.block.SPPF            [256, 256, 5]                 
+ 10                  -1  1         0  torch.nn.modules.upsampling.Upsample         [None, 2, 'nearest']          
+ 11             [-1, 6]  1         0  ultralytics.nn.modules.conv.Concat           [1]                           
+ 12                  -1  1    148224  ultralytics.nn.modules.block.C2f             [384, 128, 1]                 
+ 13                  -1  1         0  torch.nn.modules.upsampling.Upsample         [None, 2, 'nearest']          
+ 14             [-1, 4]  1         0  ultralytics.nn.modules.conv.Concat           [1]                           
+ 15                  -1  1     37248  ultralytics.nn.modules.block.C2f             [192, 64, 1]                  
+ 16                  -1  1     36992  ultralytics.nn.modules.conv.Conv             [64, 64, 3, 2]                
+ 17            [-1, 12]  1         0  ultralytics.nn.modules.conv.Concat           [1]                           
+ 18                  -1  1    123648  ultralytics.nn.modules.block.C2f             [192, 128, 1]                 
+ 19                  -1  1    147712  ultralytics.nn.modules.conv.Conv             [128, 128, 3, 2]              
+ 20             [-1, 9]  1         0  ultralytics.nn.modules.conv.Concat           [1]                           
+ 21                  -1  1    493056  ultralytics.nn.modules.block.C2f             [384, 256, 1]                 
+ 22        [15, 18, 21]  1    897664  ultralytics.nn.modules.head.Detect           [80, 16, None, [64, 128, 256]]
+Model summary: 130 layers, 3,157,200 parameters, 3,157,184 gradients, 8.9 GFLOPs
+
+Transferred 355/355 items from pretrained weights
+Freezing layer 'model.22.dfl.conv.weight'
+[34m[1mtrain: [0mFast image access  (ping: 0.00.0 ms, read: 176.765.7 MB/s, size: 46.0 KB)
+
+[K[34m[1mtrain: [0mScanning D:\a\AI_project\YOLO_int8\phase2_ultralytics\datasets\coco128\labels\train2017.cache... 126 images, 2 backgrounds, 0 corrupt: 100% ━━━━━━━━━━━━ 128/128 19.2Mit/s 0.0s
+[34m[1mval: [0mFast image access  (ping: 0.00.0 ms, read: 213.782.3 MB/s, size: 56.4 KB)
+
+[K[34m[1mval: [0mScanning D:\a\AI_project\YOLO_int8\phase2_ultralytics\datasets\coco128\labels\train2017.cache... 126 images, 2 backgrounds, 0 corrupt: 100% ━━━━━━━━━━━━ 128/128 22.4Mit/s 0.0s
+[34m[1moptimizer:[0m 'optimizer=auto' found, ignoring 'lr0=0.01' and 'momentum=0.937' and determining best 'optimizer', 'lr0' and 'momentum' automatically... 
+[34m[1moptimizer:[0m AdamW(lr=0.000119, momentum=0.9) with parameter groups 57 weight(decay=0.0), 64 weight(decay=0.0005), 63 bias(decay=0.0)
+Plotting labels to C:\Users\lenovo\runs\detect\out\fp32\labels.jpg... 
+Image sizes 192 train, 192 val
+Using 0 dataloader workers
+Logging results to [1mC:\Users\lenovo\runs\detect\out\fp32[0m
+Starting training for 3 epochs...
+
+      Epoch    GPU_mem   box_loss   cls_loss   dfl_loss  Instances       Size
+
+[K        1/3         0G      1.668      3.764      1.387         75        192: 0% ──────────── 0/16  0.4s
+[K        1/3         0G      1.992      4.125      1.478         78        192: 6% ╸─────────── 1/16 1.2s/it 0.7s<18.6s
+[K        1/3         0G      1.856      3.893       1.46         91        192: 12% ━─────────── 2/16 1.5it/s 1.1s<9.4s
+[K        1/3         0G      1.794      3.969      1.467         90        192: 18% ━━────────── 3/16 2.1it/s 1.4s<6.2s
+[K        1/3         0G      1.737      3.998      1.453         59        192: 25% ━━━───────── 4/16 2.5it/s 1.6s<4.8s
+[K        1/3         0G      1.734      4.124      1.453         92        192: 31% ━━━╸──────── 5/16 2.9it/s 1.9s<3.8s
+[K        1/3         0G      1.754      4.076       1.45         83        192: 37% ━━━━──────── 6/16 3.0it/s 2.2s<3.3s
+[K        1/3         0G      1.729      3.991      1.434         81        192: 43% ━━━━━─────── 7/16 3.2it/s 2.5s<2.8s
+[K        1/3         0G      1.725      3.957      1.441         67        192: 50% ━━━━━━────── 8/16 3.4it/s 2.8s<2.4s
+[K        1/3         0G      1.714      3.962      1.441         85        192: 56% ━━━━━━╸───── 9/16 3.3it/s 3.1s<2.1s
+[K        1/3         0G      1.721       3.98       1.44        123        192: 62% ━━━━━━━───── 10/16 3.6it/s 3.3s<1.7s
+[K        1/3         0G      1.728      4.014      1.441        122        192: 68% ━━━━━━━━──── 11/16 3.9it/s 3.5s<1.3s
+[K        1/3         0G      1.727      3.985      1.444         68        192: 75% ━━━━━━━━━─── 12/16 4.1it/s 3.7s<1.0s
+[K        1/3         0G       1.73      4.005      1.446        116        192: 81% ━━━━━━━━━╸── 13/16 4.1it/s 4.0s<0.7s
+[K        1/3         0G       1.73      4.006       1.45        103        192: 87% ━━━━━━━━━━── 14/16 4.2it/s 4.2s<0.5s
+[K        1/3         0G      1.756      4.049      1.461        122        192: 93% ━━━━━━━━━━━─ 15/16 4.3it/s 4.4s<0.2s
+[K        1/3         0G      1.756      4.049      1.461        122        192: 100% ━━━━━━━━━━━━ 16/16 3.6it/s 4.4s
+
+[K                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95): 12% ━─────────── 1/8 1.6it/s 0.2s<4.4s
+[K                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95): 25% ━━━───────── 2/8 2.8it/s 0.4s<2.1s
+[K                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95): 37% ━━━━──────── 3/8 3.9it/s 0.5s<1.3s
+[K                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95): 50% ━━━━━━────── 4/8 4.4it/s 0.7s<0.9s
+[K                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95): 62% ━━━━━━━───── 5/8 4.8it/s 0.9s<0.6s
+[K                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95): 75% ━━━━━━━━━─── 6/8 4.6it/s 1.1s<0.4s
+[K                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95): 87% ━━━━━━━━━━── 7/8 4.6it/s 1.3s<0.2s
+[K                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95): 100% ━━━━━━━━━━━━ 8/8 5.3it/s 1.5s
+                   all        128        929      0.653      0.275      0.321      0.231
+
+      Epoch    GPU_mem   box_loss   cls_loss   dfl_loss  Instances       Size
+
+[K        2/3         0G        1.8      3.945      1.352         85        192: 0% ──────────── 0/16  0.2s
+[K        2/3         0G      1.878      3.683      1.453        104        192: 6% ╸─────────── 1/16 1.4it/s 0.4s<10.6s
+[K        2/3         0G       1.76      3.804      1.428         66        192: 12% ━─────────── 2/16 2.3it/s 0.7s<6.2s
+[K        2/3         0G      1.741      3.902      1.424         82        192: 18% ━━────────── 3/16 3.1it/s 0.9s<4.2s
+[K        2/3         0G      1.754      3.897      1.447        107        192: 25% ━━━───────── 4/16 3.5it/s 1.1s<3.4s
+[K        2/3         0G      1.749        3.9      1.455         94        192: 31% ━━━╸──────── 5/16 3.9it/s 1.3s<2.8s
+[K        2/3         0G       1.74      3.977      1.463        161        192: 37% ━━━━──────── 6/16 4.1it/s 1.5s<2.5s
+[K        2/3         0G      1.746      4.048      1.468        112        192: 43% ━━━━━─────── 7/16 4.2it/s 1.7s<2.1s
+[K        2/3         0G      1.829      4.096      1.507        137        192: 50% ━━━━━━────── 8/16 4.2it/s 2.0s<1.9s
+[K        2/3         0G      1.799      4.122      1.497        108        192: 56% ━━━━━━╸───── 9/16 4.4it/s 2.2s<1.6s
+[K        2/3         0G      1.783      4.098      1.494         73        192: 62% ━━━━━━━───── 10/16 4.4it/s 2.4s<1.4s
+[K        2/3         0G      1.782      4.108      1.498         92        192: 68% ━━━━━━━━──── 11/16 4.4it/s 2.6s<1.1s
+[K        2/3         0G      1.763      4.037       1.49         60        192: 75% ━━━━━━━━━─── 12/16 4.5it/s 2.9s<0.9s
+[K        2/3         0G      1.766      4.036      1.485        151        192: 81% ━━━━━━━━━╸── 13/16 4.5it/s 3.1s<0.7s
+[K        2/3         0G      1.774      4.037      1.485         76        192: 87% ━━━━━━━━━━── 14/16 4.6it/s 3.3s<0.4s
+[K        2/3         0G      1.794      4.047      1.495        124        192: 93% ━━━━━━━━━━━─ 15/16 4.6it/s 3.5s<0.2s
+[K        2/3         0G      1.794      4.047      1.495        124        192: 100% ━━━━━━━━━━━━ 16/16 4.6it/s 3.5s
+
+[K                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95): 12% ━─────────── 1/8 2.0it/s 0.1s<3.4s
+[K                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95): 25% ━━━───────── 2/8 3.4it/s 0.3s<1.8s
+[K                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95): 37% ━━━━──────── 3/8 4.5it/s 0.4s<1.1s
+[K                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95): 50% ━━━━━━────── 4/8 4.9it/s 0.6s<0.8s
+[K                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95): 62% ━━━━━━━───── 5/8 5.3it/s 0.8s<0.6s
+[K                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95): 75% ━━━━━━━━━─── 6/8 5.1it/s 1.0s<0.4s
+[K                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95): 87% ━━━━━━━━━━── 7/8 5.0it/s 1.2s<0.2s
+[K                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95): 100% ━━━━━━━━━━━━ 8/8 6.0it/s 1.3s
+                   all        128        929      0.631       0.29      0.308      0.221
+
+      Epoch    GPU_mem   box_loss   cls_loss   dfl_loss  Instances       Size
+
+[K        3/3         0G      1.942      4.492      1.486         81        192: 0% ──────────── 0/16  0.3s
+[K        3/3         0G       1.74       4.17      1.413         60        192: 6% ╸─────────── 1/16 1.3it/s 0.5s<11.3s
+[K        3/3         0G      1.671      4.093      1.401         52        192: 12% ━─────────── 2/16 2.1it/s 0.8s<6.7s
+[K        3/3         0G      1.601      4.008      1.373         63        192: 18% ━━────────── 3/16 3.0it/s 1.0s<4.3s
+[K        3/3         0G      1.608      4.005      1.386        103        192: 25% ━━━───────── 4/16 3.5it/s 1.2s<3.4s
+[K        3/3         0G      1.627      3.976      1.397        104        192: 31% ━━━╸──────── 5/16 4.0it/s 1.4s<2.7s
+[K        3/3         0G      1.643      3.938        1.4        131        192: 37% ━━━━──────── 6/16 4.3it/s 1.6s<2.3s
+[K        3/3         0G      1.649      3.951      1.406        105        192: 43% ━━━━━─────── 7/16 4.7it/s 1.8s<1.9s
+[K        3/3         0G       1.69      3.956      1.427        129        192: 50% ━━━━━━────── 8/16 4.4it/s 2.0s<1.8s
+[K        3/3         0G      1.678      3.848       1.42         64        192: 56% ━━━━━━╸───── 9/16 4.4it/s 2.2s<1.6s
+[K        3/3         0G      1.671      3.855      1.417        111        192: 62% ━━━━━━━───── 10/16 4.4it/s 2.5s<1.4s
+[K        3/3         0G        1.7      3.884      1.421        150        192: 68% ━━━━━━━━──── 11/16 4.5it/s 2.7s<1.1s
+[K        3/3         0G      1.696      3.904      1.418         78        192: 75% ━━━━━━━━━─── 12/16 4.4it/s 2.9s<0.9s
+[K        3/3         0G       1.68      3.883      1.416         69        192: 81% ━━━━━━━━━╸── 13/16 4.5it/s 3.1s<0.7s
+[K        3/3         0G      1.685      3.867      1.418         74        192: 87% ━━━━━━━━━━── 14/16 4.7it/s 3.3s<0.4s
+[K        3/3         0G      1.662       3.81      1.404         68        192: 93% ━━━━━━━━━━━─ 15/16 4.7it/s 3.5s<0.2s
+[K        3/3         0G      1.662       3.81      1.404         68        192: 100% ━━━━━━━━━━━━ 16/16 4.5it/s 3.5s
+
+[K                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95): 12% ━─────────── 1/8 1.9it/s 0.2s<3.7s
+[K                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95): 25% ━━━───────── 2/8 3.2it/s 0.3s<1.9s
+[K                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95): 37% ━━━━──────── 3/8 4.2it/s 0.5s<1.2s
+[K                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95): 50% ━━━━━━────── 4/8 4.6it/s 0.7s<0.9s
+[K                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95): 62% ━━━━━━━───── 5/8 5.1it/s 0.8s<0.6s
+[K                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95): 75% ━━━━━━━━━─── 6/8 4.9it/s 1.0s<0.4s
+[K                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95): 87% ━━━━━━━━━━── 7/8 4.9it/s 1.2s<0.2s
+[K                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95): 100% ━━━━━━━━━━━━ 8/8 5.7it/s 1.4s
+                   all        128        929      0.602      0.293      0.291      0.205
+
+3 epochs completed in 0.005 hours.
+Optimizer stripped from C:\Users\lenovo\runs\detect\out\fp32\weights\last.pt, 6.5MB
+Optimizer stripped from C:\Users\lenovo\runs\detect\out\fp32\weights\best.pt, 6.5MB
+
+Validating C:\Users\lenovo\runs\detect\out\fp32\weights\best.pt...
+Ultralytics 8.4.116  Python-3.13.9 torch-2.11.0+cpu CPU (AMD Ryzen 7 7735HS with Radeon Graphics)
+Model summary (fused): 73 layers, 3,151,904 parameters, 0 gradients, 8.7 GFLOPs
+
+[K                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95): 12% ━─────────── 1/8 1.7it/s 0.2s<4.2s
+[K                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95): 25% ━━━───────── 2/8 2.6it/s 0.4s<2.4s
+[K                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95): 37% ━━━━──────── 3/8 3.0it/s 0.6s<1.7s
+[K                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95): 50% ━━━━━━────── 4/8 3.6it/s 0.8s<1.1s
+[K                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95): 62% ━━━━━━━───── 5/8 4.6it/s 1.0s<0.7s
+[K                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95): 75% ━━━━━━━━━─── 6/8 4.7it/s 1.2s<0.4s
+[K                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95): 87% ━━━━━━━━━━── 7/8 5.0it/s 1.4s<0.2s
+[K                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95): 100% ━━━━━━━━━━━━ 8/8 5.3it/s 1.5s
+                   all        128        929      0.657      0.274       0.32      0.231
+Speed: 0.1ms preprocess, 5.7ms inference, 0.0ms loss, 0.6ms postprocess per image
+Results saved to [1mC:\Users\lenovo\runs\detect\out\fp32[0m
+[FP32 微调] 3 epochs 用时 28s
+Ultralytics 8.4.116  Python-3.13.9 torch-2.11.0+cpu CPU (AMD Ryzen 7 7735HS with Radeon Graphics)
+Model summary (fused): 73 layers, 3,151,904 parameters, 0 gradients, 8.7 GFLOPs
+[34m[1mval: [0mFast image access  (ping: 0.00.0 ms, read: 194.4116.1 MB/s, size: 42.2 KB)
+
+[K[34m[1mval: [0mScanning D:\a\AI_project\YOLO_int8\phase2_ultralytics\datasets\coco128\labels\train2017.cache... 126 images, 2 backgrounds, 0 corrupt: 100% ━━━━━━━━━━━━ 128/128 35.8Mit/s 0.0s
+
+[K                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95): 12% ━─────────── 1/8 2.1it/s 0.1s<3.4s
+[K                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95): 25% ━━━───────── 2/8 3.7it/s 0.3s<1.6s
+[K                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95): 37% ━━━━──────── 3/8 5.0it/s 0.4s<1.0s
+[K                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95): 50% ━━━━━━────── 4/8 5.6it/s 0.5s<0.7s
+[K                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95): 62% ━━━━━━━───── 5/8 6.2it/s 0.7s<0.5s
+[K                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95): 75% ━━━━━━━━━─── 6/8 6.0it/s 0.9s<0.3s
+[K                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95): 87% ━━━━━━━━━━── 7/8 5.9it/s 1.0s<0.2s
+[K                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95): 100% ━━━━━━━━━━━━ 8/8 6.9it/s 1.2s
+                   all        128        929      0.657      0.274       0.32      0.231
+Speed: 0.1ms preprocess, 5.3ms inference, 0.0ms loss, 0.6ms postprocess per image
+[FP32 微调后] mAP50 = 0.3204  mAP = 0.2308
+[PTQ] 量化卷积 64 个 (激活量化 64 个), 加载 FP32 微调权重, 不训练
+Fast image access  (ping: 0.00.0 ms, read: 317.7167.4 MB/s, size: 65.2 KB)
+
+[KScanning D:\a\AI_project\YOLO_int8\phase2_ultralytics\datasets\coco128\labels\train2017.cache... 126 images, 2 backgrounds, 0 corrupt: 100% ━━━━━━━━━━━━ 128/128 41.3Mit/s 0.0s
+[校准] 冻结 64 个激活量化器的静态 scale
+Ultralytics 8.4.116  Python-3.13.9 torch-2.11.0+cpu CPU (AMD Ryzen 7 7735HS with Radeon Graphics)
+Model summary (fused): 137 layers, 3,151,904 parameters, 0 gradients, 8.7 GFLOPs
+[34m[1mval: [0mFast image access  (ping: 0.00.0 ms, read: 234.6204.3 MB/s, size: 57.8 KB)
+
+[K[34m[1mval: [0mScanning D:\a\AI_project\YOLO_int8\phase2_ultralytics\datasets\coco128\labels\train2017.cache... 126 images, 2 backgrounds, 0 corrupt: 100% ━━━━━━━━━━━━ 128/128 25.6Mit/s 0.0s
+
+[K                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95): 12% ━─────────── 1/8 1.6it/s 0.2s<4.3s
+[K                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95): 25% ━━━───────── 2/8 2.7it/s 0.4s<2.2s
+[K                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95): 37% ━━━━──────── 3/8 3.3it/s 0.6s<1.5s
+[K                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95): 50% ━━━━━━────── 4/8 3.7it/s 0.8s<1.1s
+[K                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95): 62% ━━━━━━━───── 5/8 3.9it/s 1.0s<0.8s
+[K                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95): 75% ━━━━━━━━━─── 6/8 3.7it/s 1.3s<0.5s
+[K                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95): 87% ━━━━━━━━━━── 7/8 3.7it/s 1.6s<0.3s
+[K                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95): 100% ━━━━━━━━━━━━ 8/8 4.4it/s 1.8s
+                   all        128        929      0.686      0.263      0.319      0.225
+Speed: 0.1ms preprocess, 10.5ms inference, 0.0ms loss, 0.5ms postprocess per image
+[PTQ]          mAP50 = 0.3186  mAP = 0.2254   (掉点 +0.0017)
+Ultralytics 8.4.116  Python-3.13.9 torch-2.11.0+cpu CPU (AMD Ryzen 7 7735HS with Radeon Graphics)
+[34m[1mengine\trainer: [0magnostic_nms=False, amp=False, angle=1.0, augment=False, auto_augment=randaugment, batch=8, bgr=0.0, box=7.5, cache=False, cfg=None, channels_last=False, classes=None, close_mosaic=10, cls=0.5, cls_pw=0.0, cls_remap=True, compile=False, conf=None, copy_paste=0.0, copy_paste_mode=flip, cos_lr=False, cutmix=0.0, data=coco128, degrees=0.0, deterministic=True, device=cpu, dfl=1.5, dgrad=0.5, dis=6.0, distill_model=None, dlam=1.0, dlog=1.0, dnn=False, dropout=0.0, dynamic=False, embed=None, end2end=None, epochs=3, erasing=0.4, exist_ok=True, fliplr=0.5, flipud=0.0, format=torchscript, fraction=1.0, freeze=None, hsv_h=0.015, hsv_s=0.7, hsv_v=0.4, imgsz=192, iou=0.7, keras=False, kobj=1.0, line_width=None, lr0=0.01, lrf=0.01, mask_ratio=4, max_det=300, mixup=0.0, mode=train, model=yolov8n.pt, momentum=0.937, mosaic=1.0, multi_scale=0.0, name=qat, nbs=64, nms=False, opset=None, optimize=False, optimizer=auto, overlap_mask=True, patience=100, perspective=0.0, plots=True, pose=12.0, pretrained=True, profile=False, project=out, quantize=None, rect=False, resume=False, retina_masks=False, rle=1.0, save=True, save_conf=False, save_crop=False, save_dir=C:\Users\lenovo\runs\detect\out\qat, save_frames=False, save_json=False, save_period=-1, save_txt=False, scale=0.5, seed=0, shear=0.0, show=False, show_boxes=True, show_conf=True, show_labels=True, simplify=True, single_cls=False, source=None, split=val, stream_buffer=False, task=detect, time=None, tracker=tracktrack.yaml, translate=0.1, val=True, verbose=False, vid_stride=1, visualize=False, warmup_bias_lr=0.1, warmup_epochs=3.0, warmup_momentum=0.8, weight_decay=0.0005, workers=0, workspace=None
+
+                   from  n    params  module                                       arguments                     
+  0                  -1  1       464  ultralytics.nn.modules.conv.Conv             [3, 16, 3, 2]                 
+  1                  -1  1      4672  ultralytics.nn.modules.conv.Conv             [16, 32, 3, 2]                
+  2                  -1  1      7360  ultralytics.nn.modules.block.C2f             [32, 32, 1, True]             
+  3                  -1  1     18560  ultralytics.nn.modules.conv.Conv             [32, 64, 3, 2]                
+  4                  -1  2     49664  ultralytics.nn.modules.block.C2f             [64, 64, 2, True]             
+  5                  -1  1     73984  ultralytics.nn.modules.conv.Conv             [64, 128, 3, 2]               
+  6                  -1  2    197632  ultralytics.nn.modules.block.C2f             [128, 128, 2, True]           
+  7                  -1  1    295424  ultralytics.nn.modules.conv.Conv             [128, 256, 3, 2]              
+  8                  -1  1    460288  ultralytics.nn.modules.block.C2f             [256, 256, 1, True]           
+  9                  -1  1    164608  ultralytics.nn.modules.block.SPPF            [256, 256, 5]                 
+ 10                  -1  1         0  torch.nn.modules.upsampling.Upsample         [None, 2, 'nearest']          
+ 11             [-1, 6]  1         0  ultralytics.nn.modules.conv.Concat           [1]                           
+ 12                  -1  1    148224  ultralytics.nn.modules.block.C2f             [384, 128, 1]                 
+ 13                  -1  1         0  torch.nn.modules.upsampling.Upsample         [None, 2, 'nearest']          
+ 14             [-1, 4]  1         0  ultralytics.nn.modules.conv.Concat           [1]                           
+ 15                  -1  1     37248  ultralytics.nn.modules.block.C2f             [192, 64, 1]                  
+ 16                  -1  1     36992  ultralytics.nn.modules.conv.Conv             [64, 64, 3, 2]                
+ 17            [-1, 12]  1         0  ultralytics.nn.modules.conv.Concat           [1]                           
+ 18                  -1  1    123648  ultralytics.nn.modules.block.C2f             [192, 128, 1]                 
+ 19                  -1  1    147712  ultralytics.nn.modules.conv.Conv             [128, 128, 3, 2]              
+ 20             [-1, 9]  1         0  ultralytics.nn.modules.conv.Concat           [1]                           
+ 21                  -1  1    493056  ultralytics.nn.modules.block.C2f             [384, 256, 1]                 
+ 22        [15, 18, 21]  1    897664  ultralytics.nn.modules.head.Detect           [80, 16, None, [64, 128, 256]]
+Model summary: 130 layers, 3,157,200 parameters, 3,157,184 gradients, 8.9 GFLOPs
+
+Transferred 355/355 items from pretrained weights
+Freezing layer 'model.22.dfl.conv.weight'
+[34m[1mtrain: [0mFast image access  (ping: 0.00.0 ms, read: 253.6115.8 MB/s, size: 50.9 KB)
+
+[K[34m[1mtrain: [0mScanning D:\a\AI_project\YOLO_int8\phase2_ultralytics\datasets\coco128\labels\train2017.cache... 126 images, 2 backgrounds, 0 corrupt: 100% ━━━━━━━━━━━━ 128/128 53.7Mit/s 0.0s
+[34m[1mval: [0mFast image access  (ping: 0.00.0 ms, read: 226.981.9 MB/s, size: 52.5 KB)
+
+[K[34m[1mval: [0mScanning D:\a\AI_project\YOLO_int8\phase2_ultralytics\datasets\coco128\labels\train2017.cache... 126 images, 2 backgrounds, 0 corrupt: 100% ━━━━━━━━━━━━ 128/128 31.6Mit/s 0.0s
+[34m[1moptimizer:[0m 'optimizer=auto' found, ignoring 'lr0=0.01' and 'momentum=0.937' and determining best 'optimizer', 'lr0' and 'momentum' automatically... 
+[34m[1moptimizer:[0m AdamW(lr=0.000119, momentum=0.9) with parameter groups 57 weight(decay=0.0), 64 weight(decay=0.0005), 63 bias(decay=0.0)
+Plotting labels to C:\Users\lenovo\runs\detect\out\qat\labels.jpg... 
+[QAT] 已对 45 个卷积打补丁 (激活量化 45 个)
+Image sizes 192 train, 192 val
+Using 0 dataloader workers
+Logging results to [1mC:\Users\lenovo\runs\detect\out\qat[0m
+Starting training for 3 epochs...
+
+      Epoch    GPU_mem   box_loss   cls_loss   dfl_loss  Instances       Size
+
+[K        1/3         0G      1.628      4.422      1.446         59        192: 0% ──────────── 0/16  0.4s
+[K        1/3         0G      1.939      4.933      1.506        154        192: 6% ╸─────────── 1/16 1.3s/it 0.8s<19.2s
+[K        1/3         0G      1.815      4.811      1.456        114        192: 12% ━─────────── 2/16 1.3it/s 1.2s<10.9s
+[K        1/3         0G      1.877       4.84      1.492        108        192: 18% ━━────────── 3/16 1.7it/s 1.6s<7.5s
+[K        1/3         0G      1.868      4.777      1.501         79        192: 25% ━━━───────── 4/16 2.1it/s 1.9s<5.8s
+[K        1/3         0G       1.84      4.674      1.505         69        192: 31% ━━━╸──────── 5/16 2.3it/s 2.3s<4.7s
+[K        1/3         0G      1.847      4.663      1.509        116        192: 37% ━━━━──────── 6/16 2.4it/s 2.6s<4.1s
+[K        1/3         0G      1.843      4.536      1.505         55        192: 43% ━━━━━─────── 7/16 2.6it/s 3.0s<3.5s
+[K        1/3         0G      1.822      4.466      1.492         55        192: 50% ━━━━━━────── 8/16 2.7it/s 3.3s<2.9s
+[K        1/3         0G      1.794      4.372       1.49         54        192: 56% ━━━━━━╸───── 9/16 2.8it/s 3.6s<2.5s
+[K        1/3         0G      1.791      4.393      1.482        150        192: 62% ━━━━━━━───── 10/16 2.9it/s 3.9s<2.1s
+[K        1/3         0G      1.809        4.4      1.489         82        192: 68% ━━━━━━━━──── 11/16 3.0it/s 4.2s<1.7s
+[K        1/3         0G      1.809      4.353      1.489         75        192: 75% ━━━━━━━━━─── 12/16 3.2it/s 4.5s<1.3s
+[K        1/3         0G      1.816      4.338      1.486         83        192: 81% ━━━━━━━━━╸── 13/16 3.1it/s 4.9s<1.0s
+[K        1/3         0G      1.808      4.284      1.487         83        192: 87% ━━━━━━━━━━── 14/16 3.2it/s 5.2s<0.6s
+[K        1/3         0G      1.828      4.321      1.497        147        192: 93% ━━━━━━━━━━━─ 15/16 3.2it/s 5.5s<0.3s
+[K        1/3         0G      1.828      4.321      1.497        147        192: 100% ━━━━━━━━━━━━ 16/16 2.9it/s 5.5s
+
+[K                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95): 12% ━─────────── 1/8 1.8it/s 0.2s<3.8s
+[K                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95): 25% ━━━───────── 2/8 3.0it/s 0.3s<2.0s
+[K                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95): 37% ━━━━──────── 3/8 4.0it/s 0.5s<1.3s
+[K                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95): 50% ━━━━━━────── 4/8 4.5it/s 0.7s<0.9s
+[K                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95): 62% ━━━━━━━───── 5/8 5.0it/s 0.8s<0.6s
+[K                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95): 75% ━━━━━━━━━─── 6/8 4.9it/s 1.1s<0.4s
+[K                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95): 87% ━━━━━━━━━━── 7/8 4.8it/s 1.3s<0.2s
+[K                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95): 100% ━━━━━━━━━━━━ 8/8 5.6it/s 1.4s
+                   all        128        929      0.663      0.271      0.318      0.228
+
+      Epoch    GPU_mem   box_loss   cls_loss   dfl_loss  Instances       Size
+
+[K        2/3         0G       1.75      4.956      1.458         93        192: 0% ──────────── 0/16  0.3s
+[K        2/3         0G      1.854      4.251      1.537         64        192: 6% ╸─────────── 1/16 1.1it/s 0.6s<14.2s
+[K        2/3         0G      1.795       4.26        1.5         67        192: 12% ━─────────── 2/16 1.6it/s 0.9s<8.5s
+[K        2/3         0G      1.744      4.326      1.489         82        192: 18% ━━────────── 3/16 2.1it/s 1.2s<6.1s
+[K        2/3         0G      1.764        4.2      1.504         89        192: 25% ━━━───────── 4/16 2.5it/s 1.5s<4.8s
+[K        2/3         0G      1.748       4.26      1.503         84        192: 31% ━━━╸──────── 5/16 2.8it/s 1.8s<4.0s
+[K        2/3         0G      1.731      4.222      1.483        139        192: 37% ━━━━──────── 6/16 2.9it/s 2.1s<3.4s
+[K        2/3         0G      1.765      4.278      1.497        146        192: 43% ━━━━━─────── 7/16 3.0it/s 2.4s<3.0s
+[K        2/3         0G      1.785      4.276      1.505         98        192: 50% ━━━━━━────── 8/16 3.0it/s 2.8s<2.7s
+[K        2/3         0G      1.773       4.25      1.496         80        192: 56% ━━━━━━╸───── 9/16 3.1it/s 3.1s<2.3s
+[K        2/3         0G      1.759      4.239      1.491        110        192: 62% ━━━━━━━───── 10/16 3.1it/s 3.4s<1.9s
+[K        2/3         0G      1.777      4.224      1.497        101        192: 68% ━━━━━━━━──── 11/16 3.2it/s 3.7s<1.6s
+[K        2/3         0G      1.775      4.272      1.494        133        192: 75% ━━━━━━━━━─── 12/16 3.2it/s 4.0s<1.2s
+[K        2/3         0G      1.793      4.252      1.498        123        192: 81% ━━━━━━━━━╸── 13/16 3.3it/s 4.3s<0.9s
+[K        2/3         0G      1.804      4.257        1.5        103        192: 87% ━━━━━━━━━━── 14/16 3.2it/s 4.6s<0.6s
+[K        2/3         0G      1.816      4.198      1.496         90        192: 93% ━━━━━━━━━━━─ 15/16 3.2it/s 4.9s<0.3s
+[K        2/3         0G      1.816      4.198      1.496         90        192: 100% ━━━━━━━━━━━━ 16/16 3.2it/s 4.9s
+
+[K                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95): 12% ━─────────── 1/8 2.0it/s 0.1s<3.4s
+[K                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95): 25% ━━━───────── 2/8 3.2it/s 0.3s<1.8s
+[K                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95): 37% ━━━━──────── 3/8 4.1it/s 0.5s<1.2s
+[K                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95): 50% ━━━━━━────── 4/8 4.7it/s 0.6s<0.9s
+[K                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95): 62% ━━━━━━━───── 5/8 5.1it/s 0.8s<0.6s
+[K                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95): 75% ━━━━━━━━━─── 6/8 4.9it/s 1.0s<0.4s
+[K                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95): 87% ━━━━━━━━━━── 7/8 4.9it/s 1.2s<0.2s
+[K                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95): 100% ━━━━━━━━━━━━ 8/8 5.8it/s 1.4s
+                   all        128        929      0.622      0.287      0.303      0.218
+
+      Epoch    GPU_mem   box_loss   cls_loss   dfl_loss  Instances       Size
+
+[K        3/3         0G      1.813      4.391      1.503        130        192: 0% ──────────── 0/16  0.4s
+[K        3/3         0G      1.578      3.719       1.39         46        192: 6% ╸─────────── 1/16 1.0s/it 0.7s<15.1s
+[K        3/3         0G      1.573      3.651      1.404         66        192: 12% ━─────────── 2/16 1.7it/s 1.0s<8.2s
+[K        3/3         0G      1.647      3.807      1.433         86        192: 18% ━━────────── 3/16 2.3it/s 1.3s<5.7s
+[K        3/3         0G      1.622       3.74      1.415        112        192: 25% ━━━───────── 4/16 2.6it/s 1.6s<4.7s
+[K        3/3         0G      1.635      3.791      1.423        118        192: 31% ━━━╸──────── 5/16 2.8it/s 1.9s<4.0s
+[K        3/3         0G       1.65      3.751      1.431         84        192: 37% ━━━━──────── 6/16 3.0it/s 2.2s<3.4s
+[K        3/3         0G      1.649      3.695      1.427         60        192: 43% ━━━━━─────── 7/16 3.1it/s 2.5s<2.9s
+[K        3/3         0G      1.676      3.744      1.437        134        192: 50% ━━━━━━────── 8/16 3.0it/s 2.8s<2.7s
+[K        3/3         0G      1.716       3.76      1.454         86        192: 56% ━━━━━━╸───── 9/16 3.1it/s 3.1s<2.3s
+[K        3/3         0G      1.714       3.75      1.447        113        192: 62% ━━━━━━━───── 10/16 3.1it/s 3.4s<1.9s
+[K        3/3         0G      1.721      3.731      1.452        120        192: 68% ━━━━━━━━──── 11/16 3.1it/s 3.8s<1.6s
+[K        3/3         0G      1.712      3.754      1.442         98        192: 75% ━━━━━━━━━─── 12/16 3.2it/s 4.1s<1.3s
+[K        3/3         0G      1.704      3.714      1.442         67        192: 81% ━━━━━━━━━╸── 13/16 3.2it/s 4.4s<0.9s
+[K        3/3         0G      1.696      3.744      1.441         96        192: 87% ━━━━━━━━━━── 14/16 3.2it/s 4.7s<0.6s
+[K        3/3         0G      1.701      3.717      1.432         68        192: 93% ━━━━━━━━━━━─ 15/16 3.2it/s 5.0s<0.3s
+[K        3/3         0G      1.701      3.717      1.432         68        192: 100% ━━━━━━━━━━━━ 16/16 3.2it/s 5.0s
+
+[K                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95): 12% ━─────────── 1/8 1.9it/s 0.2s<3.7s
+[K                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95): 25% ━━━───────── 2/8 3.1it/s 0.3s<1.9s
+[K                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95): 37% ━━━━──────── 3/8 4.0it/s 0.5s<1.2s
+[K                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95): 50% ━━━━━━────── 4/8 4.6it/s 0.7s<0.9s
+[K                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95): 62% ━━━━━━━───── 5/8 5.0it/s 0.8s<0.6s
+[K                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95): 75% ━━━━━━━━━─── 6/8 4.9it/s 1.0s<0.4s
+[K                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95): 87% ━━━━━━━━━━── 7/8 4.9it/s 1.3s<0.2s
+[K                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95): 100% ━━━━━━━━━━━━ 8/8 5.6it/s 1.4s
+                   all        128        929      0.603       0.28      0.294      0.209
+
+3 epochs completed in 0.006 hours.
+Optimizer stripped from C:\Users\lenovo\runs\detect\out\qat\weights\last.pt, 6.5MB
+Optimizer stripped from C:\Users\lenovo\runs\detect\out\qat\weights\best.pt, 6.5MB
+
+Validating C:\Users\lenovo\runs\detect\out\qat\weights\best.pt...
+Ultralytics 8.4.116  Python-3.13.9 torch-2.11.0+cpu CPU (AMD Ryzen 7 7735HS with Radeon Graphics)
+Model summary (fused): 73 layers, 3,151,904 parameters, 0 gradients, 8.7 GFLOPs
+
+[K                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95): 12% ━─────────── 1/8 2.1it/s 0.1s<3.4s
+[K                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95): 25% ━━━───────── 2/8 2.9it/s 0.4s<2.1s
+[K                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95): 37% ━━━━──────── 3/8 3.3it/s 0.6s<1.5s
+[K                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95): 50% ━━━━━━────── 4/8 3.7it/s 0.8s<1.1s
+[K                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95): 62% ━━━━━━━───── 5/8 4.6it/s 0.9s<0.6s
+[K                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95): 75% ━━━━━━━━━─── 6/8 4.7it/s 1.2s<0.4s
+[K                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95): 87% ━━━━━━━━━━── 7/8 4.9it/s 1.3s<0.2s
+[K                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95): 100% ━━━━━━━━━━━━ 8/8 5.4it/s 1.5s
+                   all        128        929      0.663      0.271      0.318      0.227
+Speed: 0.1ms preprocess, 5.4ms inference, 0.0ms loss, 0.7ms postprocess per image
+Results saved to [1mC:\Users\lenovo\runs\detect\out\qat[0m
+[QAT 微调] 3 epochs 用时 28s
+[QAT] 训练用网络量化卷积 45 个 (激活量化 45 个)
+Fast image access  (ping: 0.00.0 ms, read: 173.181.2 MB/s, size: 42.2 KB)
+
+[KScanning D:\a\AI_project\YOLO_int8\phase2_ultralytics\datasets\coco128\labels\train2017.cache... 126 images, 2 backgrounds, 0 corrupt: 100% ━━━━━━━━━━━━ 128/128 19.9Mit/s 0.0s
+[校准] 冻结 45 个激活量化器的静态 scale
+Ultralytics 8.4.116  Python-3.13.9 torch-2.11.0+cpu CPU (AMD Ryzen 7 7735HS with Radeon Graphics)
+Model summary (fused): 118 layers, 3,151,904 parameters, 31,920 gradients, 8.7 GFLOPs
+[34m[1mval: [0mFast image access  (ping: 0.00.0 ms, read: 281.7148.9 MB/s, size: 65.2 KB)
+
+[K[34m[1mval: [0mScanning D:\a\AI_project\YOLO_int8\phase2_ultralytics\datasets\coco128\labels\train2017.cache... 126 images, 2 backgrounds, 0 corrupt: 100% ━━━━━━━━━━━━ 128/128 35.8Mit/s 0.0s
+
+[K                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95): 12% ━─────────── 1/8 1.6it/s 0.2s<4.3s
+[K                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95): 25% ━━━───────── 2/8 2.7it/s 0.4s<2.2s
+[K                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95): 37% ━━━━──────── 3/8 3.5it/s 0.6s<1.4s
+[K                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95): 50% ━━━━━━────── 4/8 4.0it/s 0.8s<1.0s
+[K                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95): 62% ━━━━━━━───── 5/8 4.4it/s 0.9s<0.7s
+[K                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95): 75% ━━━━━━━━━─── 6/8 4.2it/s 1.2s<0.5s
+[K                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95): 87% ━━━━━━━━━━── 7/8 4.1it/s 1.5s<0.2s
+[K                 Class     Images  Instances      Box(P          R      mAP50  mAP50-95): 100% ━━━━━━━━━━━━ 8/8 4.8it/s 1.7s
+                   all        128        929      0.636      0.261       0.28      0.194
+Speed: 0.1ms preprocess, 9.5ms inference, 0.0ms loss, 0.5ms postprocess per image
+[QAT 微调后]  mAP50 = 0.2802  mAP = 0.1941
+
+========== Phase 2 对比 (合成数据集) ==========
+  指标        FP32 微调      PTQ            QAT 微调
+  mAP50      0.3204      0.3186 (掉 +0.0017)   0.2802 (掉 +0.0402)
+  mAP50-95   0.2308      0.2254 (掉 +0.0054)   0.1941 (掉 +0.0368)
+
+  结论: PTQ 的掉点来自权重已定型、无法适应量化噪声; QAT 在训练中
+       用 STE 让梯度穿过量化算子, 权重得以适应 int8, 精度几乎无损。
