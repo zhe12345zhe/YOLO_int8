@@ -32,6 +32,21 @@ YOLO_int8/
 2. **STE 与操作数是否量化是两件事**。STE 只是把 `round` 在 `q` 算子处的导数伪造为恒等（`∂q/∂x := 1`），让梯度能穿过量化算子；它不改变"操作数是 int8 值"这一事实。`true`（真实导数）对照实验证明：没有 STE，梯度被 round 杀死，训练停滞。
 3. **误差信号 `E` 是否量化是独立决策，且实测无损**。将 `E` 也挂上 int8 假量化（backward hook）后精度几乎不变（见下方"操作数组合消融"）——与论文中 WAGE / DoReFa-Net 将 `E` 量化为 int8 的方向一致。
 
+## 工作总览（本仓库完成的工作一览）
+
+| 工作 | 验证目标 | 关键结果 | 脚本 / 复现 |
+|---|---|---|---|
+| [A] 阶段 1 方案对比 | 微型 YOLO 上 FP32/QAT/PTQ/TrueGrad 差异 | QAT 0.408 紧贴上界 0.420，PTQ 0.361，TrueGrad 0.107（无 STE 则训练停滞） | `train_compare.py` |
+| [B] 反向传播操作数验证 | 梯度生成用到的确实是 int8 操作数 `A_q`、`W_q` | STE 恒等误差 0.00e+00；`w.grad == unfold(A_q)×E` 误差 1.82e-05；权重量化误差 0.39% | `train_compare.py` |
+| [C] 操作数组合消融 | W/A/E 三个 int8 开关各自的贡献 | A+E（权重 FP32）0.4397 最佳；E 量化无损（0.4392 vs 0.4393）；A 是精度主成本 | `train_modes.py` |
+| [D] E 量化独立验证 | 误差梯度 E 挂 int8 后精度变化 | E-int8 0.4392 ≈ E-fp32 0.4393，量化无损 | `grad_quant.py` |
+| [E] 阶段 2 合成数据 | 真实 YOLOv8n 上 QAT vs PTQ | QAT mAP50-95 0.8822（掉 0.0315）vs PTQ 0.8786（掉 0.0350） | `qat_run.py` |
+| [F] 阶段 2 COCO128 | 真实数据集 50 轮 | QAT 0.5281（几乎无损）vs PTQ 0.5089（掉 2 个点），mAP50 +0.0134 | `qat_run.py --data coco128` |
+| [G] QAT 四层硬证据 | 证明 QAT 真在量化（非 FP32 微调退化） | 结构 QConv2d×45、每 batch 90 次量化调用、消融开关不同 mAP、权重网格误差 0.391% | `qat_probe_train.py` → `qat_prove.py` |
+| [H] ONNX 导出检视 | 量化痕迹在导出图中的展开形式 | Round×90 / Div×190 / Mul×165 的 fake-quant 展开，无 QDQ | `export_onnx.py` |
+
+各工作详细结果见下面对应章节。
+
 ## 阶段 1 结果（纯 PyTorch 微型 YOLO，40 轮，合成 64x64 数据）
 
 | 方案 | val_loss | hit@0.5 |
