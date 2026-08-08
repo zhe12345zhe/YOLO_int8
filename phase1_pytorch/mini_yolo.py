@@ -16,16 +16,16 @@ CELL = 64 // GRID  # 4px
 
 
 class MiniYOLO(nn.Module):
-    def __init__(self, in_ch=1, quantized=True):
+    def __init__(self, in_ch=1, quantized=True, quant_w=True):
         super().__init__()
         conv = nn.Conv2d(in_ch, 16, 3, 1, 1)
-        self.c1 = QuantConv2d(conv) if quantized else conv
+        self.c1 = QuantConv2d(conv, quant_w=quant_w) if quantized else conv
         conv = nn.Conv2d(16, 16, 3, 2, 1)
-        self.c2 = QuantConv2d(conv) if quantized else conv
+        self.c2 = QuantConv2d(conv, quant_w=quant_w) if quantized else conv
         conv = nn.Conv2d(16, 32, 3, 2, 1)
-        self.c3 = QuantConv2d(conv) if quantized else conv
+        self.c3 = QuantConv2d(conv, quant_w=quant_w) if quantized else conv
         conv = nn.Conv2d(32, 32, 3, 1, 1)
-        self.head_f = QuantConv2d(conv) if quantized else conv
+        self.head_f = QuantConv2d(conv, quant_w=quant_w) if quantized else conv
         self.head_box = nn.Conv2d(32, 4, 1)   # 检测头保持 fp32 (损失信号通道)
         self.head_obj = nn.Conv2d(32, 1, 1)
 

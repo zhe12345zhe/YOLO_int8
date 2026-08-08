@@ -17,19 +17,23 @@ from fake_quant import ActQuant, WeightQuant
 
 
 class QuantConv2d(nn.Module):
-    def __init__(self, conv: nn.Conv2d, quant_act=True):
+    def __init__(self, conv: nn.Conv2d, quant_act=True, quant_w=True):
         super().__init__()
         self.conv = conv
-        self.wq = WeightQuant(conv.out_channels)
+        self.wq = WeightQuant(conv.out_channels) if quant_w else None
         self.aq = ActQuant() if quant_act else None
         self.saved_x_q = None
         self.saved_w_q = None
 
     def forward(self, x):
-        w_q = self.wq(self.conv.weight)
+        if self.wq is not None:
+            w_q = self.wq(self.conv.weight)
+            self.saved_w_q = w_q.detach()
+        else:
+            w_q = self.conv.weight
+            self.saved_w_q = w_q.detach()
         x_q = self.aq(x) if self.aq else x
         self.saved_x_q = x_q.detach()
-        self.saved_w_q = w_q.detach()
         y = F.conv2d(x_q, w_q, self.conv.bias,
                      self.conv.stride, self.conv.padding,
                      self.conv.dilation, self.conv.groups)
