@@ -68,7 +68,7 @@ def main():
     qat.model = blur["model"]   # 训练中带补丁的网络 (QConv2d)
     qtypes = Counter(type(m).__name__ for m in qat.model.modules() if isinstance(m, torch.nn.Conv2d))
     print(f"    QAT checkpoint 的 Conv2d 类分布: {dict(qtypes)}")
-    nw, na = count_quantized(qat.model)
+    nw, na, ne = count_quantized(qat.model)
     print(f"    -> QConv2d x {nw} 个 (每个内含权重量化 qw + 激活量化 qa)")
 
     fp32 = YOLO(args.fp32)

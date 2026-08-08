@@ -80,7 +80,7 @@ def main():
               exist_ok=True, verbose=False, cache=False, amp=False)
 
     net = qat.trainer.model
-    nw, na = count_quantized(net)
+    nw, na, ne = count_quantized(net)
     print(f"[结束] 训练所用网络仍含 QConv2d x {nw} (此类计数 > 0 即量化补丁存活到训练结束)")
     torch.save({"model": net}, "out/patched_model.pt")   # 保留补丁模型, 供结构证明
     print("已保存补丁模型 out/patched_model.pt")

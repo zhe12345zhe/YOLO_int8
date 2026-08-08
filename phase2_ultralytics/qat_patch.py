@@ -16,7 +16,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "phase1_pytorch"))
-from fake_quant import ActQuant, WeightQuant
+from fake_quant import ActQuant, WeightQuant, QMAX, quantize_int8
 
 
 class QConv2d(nn.Conv2d):
@@ -29,7 +29,31 @@ class QConv2d(nn.Conv2d):
                         self.stride, self.padding, self.dilation, self.groups)
 
 
-def patch_qat(model, quant_act=True, verbose=False):
+def make_e_hook():
+    """误差张量 E 的 int8 假量化: 注册为该卷积的 full backward hook。
+
+    反传时每个量化卷积的输入梯度 (即误差传播 E) 先过 int8 假量化,
+    再作为卷积转置/矩阵乘的下游操作数参与计算:
+        dw = A_q x E_q ;  dx = W_q^T x E_q
+    scale 取当前 batch 的 per-tensor max/127 (动态, 与激活一致)。
+    """
+
+    def hook(_m, inputs, _outputs):
+        if inputs is None:
+            return None
+        quantized = []
+        for g in inputs:
+            if g is None:
+                quantized.append(g)
+                continue
+            s = g.detach().abs().amax().clamp(min=1e-8) / QMAX
+            quantized.append(quantize_int8(g, s))
+        return tuple(quantized)
+
+    return hook
+
+
+def patch_qat(model, quant_act=True, quant_e=False, verbose=False):
     """model: ultralytics YOLO 实例 (或 DetectionModel). 返回被 patch 的 conv 名字列表。"""
     net = model.model if hasattr(model, "model") else model
     head = net[-1] if isinstance(net, nn.Sequential) else None
@@ -39,6 +63,7 @@ def patch_qat(model, quant_act=True, verbose=False):
             if m is head:
                 head_paths.add(n)
                 break
+    e_hook = make_e_hook() if quant_e else None
     patched = []
     for name, m in net.named_modules():
         if not isinstance(m, nn.Conv2d):
@@ -48,20 +73,24 @@ def patch_qat(model, quant_act=True, verbose=False):
         m.__class__ = QConv2d
         m.qw = WeightQuant(m.out_channels)
         m.qa = ActQuant() if quant_act else None
+        m.qe = quant_e
+        if e_hook is not None:
+            m.register_full_backward_hook(e_hook)
         patched.append(name)
     if verbose:
-        nw, na = count_quantized(net)
-        print(f"[QAT] 已对 {nw} 个卷积打补丁 (激活量化 {na} 个)")
+        nw, na, ne = count_quantized(net)
+        print(f"[QAT] 已对 {nw} 个卷积打补丁 (激活量化 {na} 个, 误差E量化 {ne} 个)")
     return patched
 
 
 def count_quantized(net):
-    n_w = n_a = 0
+    n_w = n_a = n_e = 0
     for m in net.modules():
         if isinstance(m, QConv2d):
             n_w += 1
             n_a += 1 if m.qa is not None else 0
-    return n_w, n_a
+            n_e += 1 if getattr(m, "qe", False) else 0
+    return n_w, n_a, n_e
 
 
 def calibrate_activations(net, loader, n_batches=None):

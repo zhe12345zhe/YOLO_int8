@@ -81,7 +81,7 @@ def main():
     # ---- 2. PTQ: 用 FP32 权重直接量化, 不训练 ----
     ptq = YOLO(fp32_ckpt)
     names = patch_qat(ptq)
-    nw, na = count_quantized(ptq.model)
+    nw, na, _ = count_quantized(ptq.model)
     print(f"[PTQ] 量化卷积 {nw} 个 (激活量化 {na} 个), 加载 FP32 微调权重, 不训练")
     calibrate(ptq.model, data_yaml, args.imgsz)
     m50_ptq, map_ptq = eval_map(ptq, data_yaml, imgsz=args.imgsz)
@@ -98,7 +98,7 @@ def main():
               device="cpu", workers=0, seed=0, project="out", name="qat",
               exist_ok=True, verbose=False, cache=False, amp=False)
     print(f"[QAT 微调] {args.epochs} epochs 用时 {time.time() - t0:.0f}s")
-    nw, na = count_quantized(qat.trainer.model)
+    nw, na, _ = count_quantized(qat.trainer.model)
     print(f"[QAT] 训练用网络量化卷积 {nw} 个 (激活量化 {na} 个)")
     qat.model = qat.trainer.model
     calibrate(qat.model, data_yaml, args.imgsz)
