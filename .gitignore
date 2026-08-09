@@ -6,6 +6,8 @@ __pycache__/
 # 大文件 / 模型产物
 *.pt
 *.onnx
+*.tar.gz
+*.zip
 
 # 数据集 / 生成产物 (脚本可复现)
 phase2_ultralytics/datasets/
@@ -13,3 +15,6 @@ phase2_ultralytics/out/
 phase2_ultralytics/data/synth/images/
 phase2_ultralytics/data/synth/labels/
 phase2_ultralytics/yolov8n.pt
+
+# opencode 会话元数据
+yolo-int8.json

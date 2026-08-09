@@ -16,6 +16,7 @@ YOLO_int8/
     ├── gen_yolo_data.py     #   YOLO 格式合成数据集（320x320）
     ├── qat_patch.py         #   以"类替换"向 YOLOv8n 插入 int8 假量化
     ├── qat_run.py           #   FP32 微调 / PTQ / QAT 对比评估
+    ├── qat_run_e.py         #   全操作数量化 W+A+E（真实数据集 COCO128）
     ├── qat_probe_train.py   #   探针训练：量化调用计数 + 训练态模型保存（on_train_start 补丁）
     ├── qat_prove.py         #   四层证据：结构/计数/消融/网格
     ├── show_weights.py      #   QAT vs FP32 权重逐层并排打印（weights_dump.txt）
@@ -37,7 +38,7 @@ YOLO_int8/
 
 1. **量化的是"乘法操作数"，不是"结果"**。反向计算 `∂L/∂W` 时，参与矩阵乘法/卷积的因子是前向量化后的 int8 激活 `A_q`；结果（梯度）与累加器始终 int32/fp32，避免误差累积。
 2. **STE 与操作数是否量化是两件事**。STE 只是把 `round` 在 `q` 算子处的导数伪造为恒等（`∂q/∂x := 1`），让梯度能穿过量化算子；它不改变"操作数是 int8 值"这一事实。`true`（真实导数）对照实验证明：没有 STE，梯度被 round 杀死，训练停滞。
-3. **误差信号 `E` 是否量化是独立决策，且实测无损**。将 `E` 也挂上 int8 假量化（backward hook）后精度几乎不变（见工作 D）——与论文中 WAGE / DoReFa-Net 将 `E` 量化为 int8 的方向一致。
+3. **误差信号 `E` 是否量化是独立决策，且结果依模型规模而异**。微型 YOLO 上 E 挂 int8 假量化几乎无损（工作 D）；真实 YOLOv8n 上 mAP50-95 掉 1.1 个百分点（工作 I）——检测头三支损失梯度的幅值分布更复杂，E 是全网络逐层量化的敏感通道。WAGE / DoReFa-Net 在浅层分类网络上的结论不能直接外推到检测模型。
 
 ## 完成的工作（并列一览，详见平行小节）
 
@@ -51,6 +52,7 @@ YOLO_int8/
 | [F 阶段 2 COCO128](#wF) | 真实数据集 50 轮 | QAT 0.5281（几乎无损）vs PTQ 0.5089（掉 2 个点），mAP50 +0.0134 | `qat_run.py --data coco128` |
 | [G "QAT 真的在量化吗"四层硬证据](#wG) | 证明 QAT 真在量化（非 FP32 微调退化） | 结构 QConv2d×45、每 batch 90 次量化调用、消融开关不同 mAP、权重网格误差 0.391% | `qat_probe_train.py`→`qat_prove.py` |
 | [H ONNX 导出检视](#wH) | 量化痕迹在导出图中的展开形式 | Round×90 / Div×190 / Mul×165 假量化展开，无 QDQ 节点 | `export_onnx.py` |
+| [I 全操作数量化（W+A+E，COCO128）](#wI) | 权重/激活/误差梯度三者全部 int8 的真实数据验证 | mAP50-95 0.5168（vs W+A 0.5281 掉 1.1 个点）——E 量化在检测网络上有损，与微型模型结论相反 | `qat_run_e.py` |
 
 ---
 
@@ -174,6 +176,27 @@ ONNX 文件：`out/yolov8n_qat_quant.onnx`（可在 Netron 中查看 Round 链�
 
 复现：`python gen_yolo_data.py`（数据集就绪后）`python export_onnx.py`。
 
+## 工作 I：全操作数量化 W+A+E（真实数据集 COCO128）<a id="wI"></a>
+
+权重 W、激活 A、误差梯度 E 三个乘法操作数**全部** int8（`qat_patch.py` 的 `quant_e=True` 用 backward hook 对每个量化卷积的输入梯度做 per-tensor int8 假量化），在 COCO128 上完整微调 50 轮（320px，CPU 约 14 分钟）：
+
+| 方案 | 量化开关 | mAP50 | mAP50-95 |
+|---|---|---|---|
+| FP32（上界） | 无 | 0.6835 | 0.5290 |
+| PTQ | W+A（不训练） | 0.6766 | 0.5089 |
+| QAT | W+A | **0.6969** | **0.5281** |
+| QAT | **W+A+E** | 0.6743（-0.0226） | 0.5168（-0.0113） |
+
+结构验证：训练网络 **45 个 QConv2d = 权重量化 45 + 激活量化 45 + 误差量化 45**，E 钩子存活到训练结束。
+
+结论（与微型模型相反）：
+
+- **E 量化在真实检测网络上是有损的**：mAP50 掉 2.3 个点（接近 PTQ 水平），mAP50-95 掉 1.1 个点——误差通道对每层逐张量 int8 化敏感；
+- 原因分析：YOLOv8n 检测头 box/cls/dfl 三支损失梯度幅值差异大，全网络 45 层逐层量化 E 使噪声沿反向逐层累积，STE 无法完全吸收；
+- 对照微型 YOLO（工作 D：E-int8 0.4392 ≈ E-fp32 0.4393）：浅层小模型 E 量化无损，深层检测模型有损——"E 是否量化"应当作超参按任务验证，不能照搬论文。
+
+复现：`python qat_run_e.py --epochs 50 --imgsz 320 --batch 16`（结果写入 `out/phase2_e_results.txt`）。
+
 ## 复现方法
 
 ```bash
@@ -191,6 +214,7 @@ python gen_yolo_data.py                             # 生成合成数据集
 python qat_run.py --epochs 12 --imgsz 256 --batch 8 # 合成数据完整
 python qat_run.py --quick                           # 合成数据快速（3 epochs, 192px）
 python qat_run.py --data coco128 --epochs 50 --imgsz 320 --batch 16  # COCO128
+python qat_run_e.py --epochs 50 --imgsz 320 --batch 16              # W+A+E 全操作数量化
 python qat_probe_train.py --epochs 3 --imgsz 192    # 探针 + 计数
 python qat_prove.py                                 # 四层证据
 python show_weights.py                              # 权重并排打印
