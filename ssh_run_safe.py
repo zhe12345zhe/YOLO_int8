@@ -21,7 +21,13 @@ PASSWORD = _CRED.get("password", os.environ.get("YOLO_SSH_PASSWORD", ""))
 def connect():
     c = paramiko.SSHClient()
     c.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    c.connect(HOST, port=PORT, username=USER, password=PASSWORD, timeout=30)
+    try:
+        c.connect(HOST, port=PORT, username=USER, password=PASSWORD, timeout=30)
+    except Exception as e:
+        print(f"连接失败: {e}\n"
+              f"提示: 云端 GPU (AutoDL) 开机后 SSH 端口可能变化, "
+              f"请按控制台「SSH 登录」信息更新 {Path(__file__).parent / 'yolo-int8.json'} 的 host/port 后重试")
+        raise
     return c
 
 
