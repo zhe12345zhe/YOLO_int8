@@ -58,20 +58,22 @@ y.write_text("\n".join(lines) + "\n")
 print(f"data.yaml 已修正 -> {y}")
 PY
 elif [ "$MODE" = "full" ]; then
-    echo "=== [1] 下载并准备 COCO2017 全量 (118k/5k, ~20GB) ==="
-    if [ ! -f "${SCRIPT_DIR}/phase2_ultralytics/datasets/coco-full/data.yaml" ]; then
-        python3 "${SCRIPT_DIR}/prepare_coco_full.py"
+    DATA_ROOT="${DATA_ROOT:-/root/autodl-tmp}"   # 数据盘, 可环境变量覆盖
+    echo "=== [1] 下载并准备 COCO2017 全量 (118k/5k, ~20GB) -> $DATA_ROOT ==="
+    if [ ! -f "${DATA_ROOT}/coco-full/data.yaml" ]; then
+        python3 "${SCRIPT_DIR}/prepare_coco_full.py" --data-dir "${DATA_ROOT}"
     else
         echo "  coco-full 已存在, 跳过准备"
     fi
-    DATA_YAML="${SCRIPT_DIR}/phase2_ultralytics/datasets/coco-full/data.yaml"
+    DATA_YAML="${DATA_ROOT}/coco-full/data.yaml"
 else
     echo "用法: bash deploy_remote.sh big <tar> [epochs] [imgsz] [batch] | full [epochs] [imgsz] [batch]"
     exit 1
 fi
 
+PROJ_DIR="${SCRIPT_DIR}/proj"
 echo "=== [2] 依次训练: FP32 -> QAT(W+A) -> QAT(W+A+E) ==="
-cd "${SCRIPT_DIR}/phase2_ultralytics"
+cd "${PROJ_DIR}/phase2_ultralytics"
 for stage in fp32 wa wae; do
     echo "---- stage=${stage} $(date '+%F %T') ----"
     if python3 qat_run_big.py --data "${DATA_YAML}" --stage "${stage}" \
@@ -84,6 +86,6 @@ for stage in fp32 wa wae; do
 done
 
 echo "=== 结果汇总 (out/phase2_big_results.txt) ==="
-cat "${SCRIPT_DIR}/phase2_ultralytics/out/phase2_big_results.txt" 2>/dev/null || true
+cat "${PROJ_DIR}/phase2_ultralytics/out/phase2_big_results.txt" 2>/dev/null || true
 echo ""
 echo "=== 全部完成 $(date '+%F %T') ==="

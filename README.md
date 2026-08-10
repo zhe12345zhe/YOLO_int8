@@ -12,16 +12,21 @@ YOLO_int8/
 │   ├── train_compare.py     #   FP32 / QAT / TrueGrad / PTQ 对比 + 操作数验证
 │   ├── train_modes.py       #   W/A/E 三个 int8 开关的组合消融
 │   └── grad_quant.py        #   误差梯度 E 挂 int8 假量化验证
-└── phase2_ultralytics/       # 阶段 2: 真实 ultralytics YOLOv8n 的 QAT 微调
-    ├── gen_yolo_data.py     #   YOLO 格式合成数据集（320x320）
-    ├── qat_patch.py         #   以"类替换"向 YOLOv8n 插入 int8 假量化
-    ├── qat_run.py           #   FP32 微调 / PTQ / QAT 对比评估
-    ├── qat_run_e.py         #   全操作数量化 W+A+E（真实数据集 COCO128）
-    ├── qat_probe_train.py   #   探针训练：量化调用计数 + 训练态模型保存（on_train_start 补丁）
-    ├── qat_prove.py         #   四层证据：结构/计数/消融/网格
-    ├── show_weights.py      #   QAT vs FP32 权重逐层并排打印（weights_dump.txt）
-    ├── export_onnx.py       #   导出 ONNX，统计假量化痕迹算子
-    └── tee_run.py           #   子进程运行器（UTF-8 BOM 日志，防 Windows 转码乱码）
+├── phase2_ultralytics/       # 阶段 2: 真实 ultralytics YOLOv8n 的 QAT 微调
+│   ├── gen_yolo_data.py     #   YOLO 格式合成数据集（320x320）
+│   ├── qat_patch.py         #   以"类替换"向 YOLOv8n 插入 int8 假量化
+│   ├── qat_run.py           #   FP32 微调 / PTQ / QAT 对比评估
+│   ├── qat_run_e.py         #   全操作数量化 W+A+E（真实数据集 COCO128）
+│   ├── qat_run_big.py       #   大数据实验主脚本（全量 COCO2017，GPU）
+│   ├── qat_probe_train.py   #   探针训练：量化调用计数 + 训练态模型保存（on_train_start 补丁）
+│   ├── qat_prove.py         #   四层证据：结构/计数/消融/网格
+│   ├── show_weights.py      #   QAT vs FP32 权重逐层并排打印（weights_dump.txt）
+│   ├── export_onnx.py       #   导出 ONNX，统计假量化痕迹算子
+│   └── tee_run.py           #   子进程运行器（UTF-8 BOM 日志，防 Windows 转码乱码）
+├── prepare_coco_full.py      # 全量 COCO2017 下载/标注转换/组装（--data-dir 指向数据盘）
+├── deploy_remote.sh          # 远端部署入口：三阶段（fp32→wa→wae）训练流水线
+├── ssh_run.py                # paramiko 密码 SSH：执行命令 / 上传 / 下载
+└── ssh_run_safe.py           # base64 免引号版 SSH 执行（规避特殊字符转义问题）
 ```
 
 ## 核心结论：哪些操作数被 int8 量化
@@ -38,7 +43,7 @@ YOLO_int8/
 
 1. **量化的是"乘法操作数"，不是"结果"**。反向计算 `∂L/∂W` 时，参与矩阵乘法/卷积的因子是前向量化后的 int8 激活 `A_q`；结果（梯度）与累加器始终 int32/fp32，避免误差累积。
 2. **STE 与操作数是否量化是两件事**。STE 只是把 `round` 在 `q` 算子处的导数伪造为恒等（`∂q/∂x := 1`），让梯度能穿过量化算子；它不改变"操作数是 int8 值"这一事实。`true`（真实导数）对照实验证明：没有 STE，梯度被 round 杀死，训练停滞。
-3. **误差信号 `E` 是否量化是独立决策，且结果依模型规模而异**。微型 YOLO 上 E 挂 int8 假量化几乎无损（工作 D）；真实 YOLOv8n 上 mAP50-95 掉 1.1 个百分点（工作 I）——检测头三支损失梯度的幅值分布更复杂，E 是全网络逐层量化的敏感通道。WAGE / DoReFa-Net 在浅层分类网络上的结论不能直接外推到检测模型。
+3. **误差信号 `E` 是否量化是独立决策，且结果依模型规模、数据规模而异**。微型 YOLO 上 E 挂 int8 假量化几乎无损（工作 D）；真实 YOLOv8n 的 mAP50-95 掉 1.1 个百分点（COCO128，工作 I），在全量 COCO2017 上扩大到 3.4 个百分点（工作 J）——检测头三支损失梯度的幅值分布更复杂，E 是全网络逐层量化的敏感通道，且数据越大越明显。WAGE / DoReFa-Net 在浅层分类网络上的结论不能直接外推到检测模型。
 
 ## 完成的工作（并列一览，详见平行小节）
 
@@ -53,6 +58,7 @@ YOLO_int8/
 | [G "QAT 真的在量化吗"四层硬证据](#wG) | 证明 QAT 真在量化（非 FP32 微调退化） | 结构 QConv2d×45、每 batch 90 次量化调用、消融开关不同 mAP、权重网格误差 0.391% | `qat_probe_train.py`→`qat_prove.py` |
 | [H ONNX 导出检视](#wH) | 量化痕迹在导出图中的展开形式 | Round×90 / Div×190 / Mul×165 假量化展开，无 QDQ 节点 | `export_onnx.py` |
 | [I 全操作数量化（W+A+E，COCO128）](#wI) | 权重/激活/误差梯度三者全部 int8 的真实数据验证 | mAP50-95 0.5168（vs W+A 0.5281 掉 1.1 个点）——E 量化在检测网络上有损，与微型模型结论相反 | `qat_run_e.py` |
+| [J 全量 COCO2017（GPU，118k）](#wJ) | 大数据上三方案对比，验证 QAT 结论的稳健性 | W+A 掉 0.56 点（几乎无损）；W+A+E 掉 3.40 点（E 量化有损在大数据上更显著）；"QAT 超 FP32"证实为小数据集偶然 | `qat_run_big.py` · `deploy_remote.sh` |
 
 ---
 
@@ -197,6 +203,41 @@ ONNX 文件：`out/yolov8n_qat_quant.onnx`（可在 Netron 中查看 Round 链�
 
 复现：`python qat_run_e.py --epochs 50 --imgsz 320 --batch 16`（结果写入 `out/phase2_e_results.txt`）。
 
+## 工作 J：全量 COCO2017（GPU，train 118k / val 5k）<a id="wJ"></a>
+
+租用 NVIDIA RTX 3080 Ti（12GB）服务器，把 COCO128 的小样本结论放到全量数据上重验。数据直接从 AutoDL 公开数据盘 `/root/autodl-pub/COCO2017` 拷贝（免外网下载），由 `prepare_coco_full.py` 解压并转成 YOLO 格式（118,287 图 / 117,266 标签，与官方数字一致）。三个方案各 15 epochs、320px、batch 16、workers 8，由 `deploy_remote.sh` 编排依次训练（支持断点续训）。
+
+| 方案 | mAP50 | mAP50-95 | vs FP32（mAP50-95） |
+|---|---|---|---|
+| FP32（上界） | 0.3673 | 0.2450 | — |
+| QAT W+A（激活+权重 int8） | 0.3620 | 0.2394 | **-0.0056**（几乎无损） |
+| QAT W+A+E（全操作数 int8） | 0.3252 | 0.2110 | **-0.0340**（明显有损） |
+
+效率与资源（日志统计，tqdm GPU_mem 采样 10 万+ 点）：
+
+| 阶段 | 平均速度 | 15 epochs 耗时 | 显存 min/mean/peak |
+|---|---|---|---|
+| FP32 | 12.4 it/s | ~2h21m | 1.53G |
+| QAT W+A | 7.4 it/s | ~3h46m | 1.32 / 1.75 / **1.78G** |
+| QAT W+A+E | 6.8 it/s | ~4h26m | 1.31 / 1.75 / **1.78G** |
+
+（12GB 显存占用峰值不足 15%；AutoDL 面板上"内存 86%"是**系统 RAM 页缓存**，非显存，全程无 OOM，日志中 `out of memory` 出现 0 次。）
+
+结论：
+
+- **QAT W+A 的优势在大数据上成立**：掉点仅 0.56 个点（mAP50-95），与 COCO128 上"几乎无损"（0.09 点）量级一致，QAT 使权重对 int8 网格免疫的机制在全量数据上同样有效；
+- **"QAT mAP50 超过 FP32（+0.0134）"确认为小数据集偶然**：全量下 FP32 0.3673 为三方案最高；
+- **E 量化的有损性在大数据上放大**：从 COCO128 的 -1.1 点扩大到 **-3.4 点**（mAP50 掉 4.2 点）——误差通道逐层 int8 化的噪声在深网络 + 大数据下更难以被 STE 吸收，进一步支持工作 I 的结论"E 是否量化应作超参验证"；
+- **QAT 训练成本**：比 FP32 慢约 60%（W+A）~88%（W+A+E），每卷积前向/反向多两次假量化算子的 Python 层开销。
+
+复现（GPU 服务器）：上传仓库至服务器后
+
+```bash
+bash deploy_remote.sh full 15 320 16   # 自动: 准备数据 -> fp32 -> wa -> wae 依次训练
+```
+
+结果写入 `phase2_ultralytics/out/phase2_big_results.txt`；权重 `runs/detect/out/{big_fp32,big_qat,big_qat_e}/weights/best.pt`（本仓库 `out/` 下已存档 `ckpt_fp32_best.pt` / `ckpt_qat_wa_best.pt` / `ckpt_qat_wae_best.pt`）。
+
 ## 复现方法
 
 ```bash
@@ -219,6 +260,9 @@ python qat_probe_train.py --epochs 3 --imgsz 192    # 探针 + 计数
 python qat_prove.py                                 # 四层证据
 python show_weights.py                              # 权重并排打印
 python export_onnx.py                               # ONNX 导出检视
+
+# 全量 COCO2017（工作 J，需 GPU 服务器）
+bash deploy_remote.sh full 15 320 16                # 远端一键: 数据准备 + fp32/wa/wae 三阶段
 ```
 
 ## 关键实现细节

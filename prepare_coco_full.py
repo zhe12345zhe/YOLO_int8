@@ -11,7 +11,8 @@
     label:   https://images.cocodataset.org/annotations/annotations_trainval2017.zip
              (instances_*.json, 转换出完整 YOLO 标签)
 
-用法: python3 prepare_coco_full.py [--keep-zip]   (先 cd 到 deploy 脚本所在目录)
+用法: python3 prepare_coco_full.py [--keep-zip] [--data-dir /root/autodl-tmp]
+      --data-dir 数据集存放根目录 (默认 /root/autodl-tmp, 数据盘; 系统盘只有 30G 放不下 19GB 图片)
 """
 import argparse
 import json
@@ -91,15 +92,41 @@ def convert_annotations(ann_json: Path, img_root: Path, lbl_root: Path, split: s
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--keep-zip", action="store_true")
+    ap.add_argument("--data-dir", type=str, default="/root/autodl-tmp")
     args = ap.parse_args()
 
+    global DL, DST
+    DL = Path(args.data_dir) / "coco_download"
+    DST = Path(args.data_dir) / "coco-full"
+    DL.mkdir(parents=True, exist_ok=True)
     (DL / "images").mkdir(parents=True, exist_ok=True)
     (DL / "ann").mkdir(parents=True, exist_ok=True)
 
-    # ---- 1. 下载 (全量 train2017 19GB + val2017 780MB + 标注 250MB) ----
-    for split in ("train2017", "val2017"):
-        download(IMG_URL.format(split), DL / "images" / f"{split}.zip", split)
-    download(ANN_URL, DL / "ann" / "annotations_trainval2017.zip", "标注")
+    # ---- 1. 下载或复用 AutoDL 公开数据盘 (COCO2017) 的 zip ----
+    #    优先使用 /root/autodl-pub/COCO2017/*.zip (本机拷贝, 秒级), 否则外网下载
+    PUB = Path("/root/autodl-pub/COCO2017")
+    for split, fname in (("train2017", "train2017.zip"), ("val2017", "val2017.zip")):
+        dest = DL / "images" / fname
+        if dest.exists() and dest.stat().st_size > 1_000_000:
+            print(f"  已有 {fname}, 跳过")
+            continue
+        src = PUB / fname
+        if src.exists():
+            import shutil as _sh
+            print(f"  从公开数据盘拷贝 {fname} ({src.stat().st_size/1e9:.1f}GB) ...")
+            _sh.copyfile(src, dest)
+            print("  拷贝完成")
+            continue
+        download(IMG_URL.format(split), dest, split)
+    ann_dest = DL / "ann" / "annotations_trainval2017.zip"
+    if not (ann_dest.exists() and ann_dest.stat().st_size > 1_000_000):
+        pub_ann = PUB / "annotations_trainval2017.zip"
+        if pub_ann.exists():
+            import shutil as _sh
+            print(f"  从公开数据盘拷贝 annotations ...")
+            _sh.copyfile(pub_ann, ann_dest)
+        else:
+            download(ANN_URL, ann_dest, "标注")
 
     # ---- 2. 解压图片 ----
     for split in ("train2017", "val2017"):

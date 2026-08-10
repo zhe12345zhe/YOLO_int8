@@ -100,6 +100,7 @@ def calibrate_activations(net, loader, n_batches=None):
     loader 为 ultralytics 的 InfiniteDataLoader, 迭代 n_batches 次即一轮。
     """
     net.eval()
+    dev = next(net.parameters()).device   # 与训练 device 保持一致 (GPU/CPU)
     qas = [m.qa for m in net.modules() if isinstance(m, QConv2d) and m.qa is not None]
     for qa in qas:
         qa.static = True
@@ -107,7 +108,7 @@ def calibrate_activations(net, loader, n_batches=None):
     with torch.no_grad():
         for i, batch in enumerate(loader):
             imgs = batch["img"] if isinstance(batch, dict) else batch[0]
-            imgs = imgs.float()
+            imgs = imgs.float().to(dev)
             if imgs.max() > 1.5:      # 校准集为 uint8(0-255) 时归一化, 与训练一致
                 imgs = imgs / 255.0
             net(imgs)

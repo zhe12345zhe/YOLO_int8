@@ -35,8 +35,10 @@ def make_calib_loader(data_yaml, imgsz, batch=16):
     return loader, n_batches
 
 
-def eval_map(model, data, imgsz=IMGSZ):
-    r = model.val(data=data, imgsz=imgsz, device="cpu",
+def eval_map(model, data, imgsz=IMGSZ, device=None):
+    if device is None:
+        device = "0" if next(model.model.parameters()).is_cuda else "cpu"
+    r = model.val(data=data, imgsz=imgsz, device=device,
                   verbose=False, plots=False, project="out", name="val_tmp",
                   exist_ok=True)
     return r.box.map50, r.box.map

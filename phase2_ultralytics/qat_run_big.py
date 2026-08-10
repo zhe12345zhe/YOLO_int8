@@ -23,26 +23,59 @@ STAGES = {"fp32": ("big_fp32", None, "FP32"),
           "wae": ("big_qat_e", True, "QAT_W+A+E")}
 
 
+def find_ckpt(name, suffix="best.pt"):
+    """ultralytics 8.x 实际把权重写到 runs/detect/out/<name>/weights/, 兼容两处路径。"""
+    cands = [
+        os.path.join("runs", "detect", "out", name, "weights", suffix),
+        os.path.join("out", name, "weights", suffix),
+    ]
+    for p in cands:
+        if os.path.exists(p):
+            return p
+    return None
+
+
+def is_resumable(ckpt_path):
+    """last.pt 需带 optimizer/epoch 状态才能 resume (训练完成时 ultralytics 会 strip 掉)。"""
+    try:
+        ck = torch.load(ckpt_path, map_location="cpu", weights_only=False)
+        return "optimizer" in ck and ck.get("epoch", -1) >= 0
+    except Exception:
+        return False
+
+
 def run_one(name, quant_e, tag, args):
-    last_ckpt = os.path.join("out", name, "weights", "last.pt")
-    can_resume = os.path.exists(last_ckpt)
-    if can_resume:
+    last_ckpt = find_ckpt(name, "last.pt")
+    best_ckpt = find_ckpt(name, "best.pt")
+    if last_ckpt and is_resumable(last_ckpt):
         model = YOLO(last_ckpt, task="detect")
+        can_resume = True
         print(f"[{tag}] 断点续训: {last_ckpt}")
+    elif best_ckpt:
+        model = YOLO(best_ckpt, task="detect")
+        can_resume = False
+        print(f"[{tag}] 训练已完成, 直接评估: {best_ckpt}")
     else:
         model = YOLO("yolov8n.pt")
+        can_resume = False
     if quant_e is not None:
         model.add_callback("on_train_start",
                            lambda trainer: patch_qat(trainer.model, quant_act=True,
                                                      quant_e=quant_e, verbose=True))
-    t0 = time.time()
-    model.train(data=args.data, epochs=args.epochs, imgsz=args.imgsz, batch=args.batch,
-                device="cpu", workers=0, seed=0, project="out", name=name,
-                exist_ok=True, verbose=False, cache=False, amp=False,
-                resume=can_resume)
-    print(f"[{tag} 微调] 用时 {time.time() - t0:.0f}s")
-    net = model.trainer.model
-    if quant_e is not None:
+    trained = False
+    if can_resume or not best_ckpt:
+        t0 = time.time()
+        model.train(data=args.data, epochs=args.epochs, imgsz=args.imgsz, batch=args.batch,
+                    device="0", workers=8, seed=0, project="out", name=name,
+                    exist_ok=True, verbose=False, cache=False, amp=False,
+                    resume=can_resume)
+        print(f"[{tag} 微调] 用时 {time.time() - t0:.0f}s")
+        trained = True
+    net = model.trainer.model if trained else model.model
+    if quant_e is not None and can_resume is False and trained is False:
+        # 直接评估已有权重时, 也需挂上量化补丁再校准
+        patch_qat(net, quant_act=True, quant_e=quant_e, verbose=True)
+    if quant_e is not None and trained:
         nw, na, ne = count_quantized(net)
         print(f"[{tag}] 量化卷积 {nw} 个 (激活 {na} + 误差E {ne})")
     model.model = net
