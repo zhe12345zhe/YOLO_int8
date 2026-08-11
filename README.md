@@ -64,7 +64,7 @@ YOLO_int8/
 | [I 全操作数量化（W+A+E，COCO128）](#wI) | 权重/激活/误差梯度三者全部 int8 的真实数据验证 | mAP50-95 0.5168（vs W+A 0.5281 掉 1.1 个点）——E 量化在检测网络上有损，与微型模型结论相反 | `qat_run_e.py` |
 | [J 全量 COCO2017（GPU，118k）](#wJ) | 大数据上三方案对比，验证 QAT 结论的稳健性 | W+A 掉 0.56 点（几乎无损）；W+A+E 掉 3.40 点（E 量化有损在大数据上更显著）；"QAT 超 FP32"证实为小数据集偶然 | `qat_run_big.py` · `deploy_remote.sh` |
 | [K TensorRT 部署（3080 Ti）](#wK) | 训练权重落地为真实 INT8 硬件加速 | INT8 engine 精度损失：普通权重 -7.1%、QAT_W+A -7.9%、**QAT_W+A+E 仅 -1.3%**；端到端延迟 2.2→2.0ms、纯推理 ~1.06-1.10x；QDQ 246 对节点断言 INT8 生效 | `deploy_int8.py` · `out/int8_bench.png` |
-| [L INT8 训练引擎（方案 B，GPU）](#wL) | 真 int8 GEMM 训练链路（前向 cuDNN INT8 + SwitchBack dW）在 3080 Ti 上能否加速 | 数值正确（前向/dW 误差 ~1.2%，dX 精确）；三轮工程 0.34x→0.57x 仍逊 fp32——瓶颈是 **Python 调度 35ms**（语言层面墙，非 kernel 能力）；cuDNN fprop 大层 2-4x 快、1x1 层 0.3x 慢 | `int8_engine.py` · `int8_engine_train.py` · `lt_ex.cu` |
+| [L INT8 训练引擎（方案 B，GPU）](#wL) | 真 int8 GEMM 训练链路（前向 cuDNN INT8 + SwitchBack dW）在 3080 Ti 上能否加速 | 数值正确（前向/dW 误差 ~1.2%，dX 精确）；三轮工程 0.34x→0.57x 仍逊 fp32；大模型(yolov8l/x 0.41-0.49x)翻不了盘——1x1 层 int8 慢 3 倍、dX/dgrad 在 sm86 无 INT8、瓶颈为 **Python 调度 35ms**（语言层面墙） | `int8_engine.py` · `int8_engine_train.py` · `lt_ex.cu` |
 
 ---
 
@@ -343,7 +343,19 @@ python deploy_int8.py --imgsz 320 --data /root/autodl-tmp/coco-full/data.yaml
 | yolov8l | 320/16 | 111.7 | 270.8 | 0.41x |
 | yolov8x | 320/16 | 175.3 | 381.0 | 0.47x |
 
-单层分解显示 3x3 大层 int8 快 1.9-2.3x（收益真实），但 1x1 层 cuDNN int8 无优化 kernel（0.3x 慢）、dW 展开在大模型上成比例放大，收益被吞。
+### 大模型为什么没能翻盘：三个理论假设的破灭
+
+"模型越大 int8 越该赢"的理论链条是：int8 tensorcore 算力 8x → GEMM 更大更算力受限 → 优势显现。实测证明三个隐含假设全部不成立：
+
+1. **假设"所有卷积都走 int8 高效 kernel"——错，1x1 层是负资产**。yolov8 卷积里 1x1 占 ~40%（cv1/cv2 全是）。单层实测（yolov8x）：3x3 大层（320→320、640→640）int8 快 **1.9-2.3x**；1x1 层（如 1600→640）int8 慢 **0.3-0.7x**——cuDNN 的 int8 1x1 kernel 无 IMMA 优化，而 fp32 1x1 是纯 cuBLAS GEMM 极快。模型越大 1x1 越重，3x3 省的钱被 1x1 亏的钱吃掉大半。
+
+2. **假设"训练 = 大 GEMM"——错，反传占 67% 且 int8 化无门**。yolov8x 实测 fwd 58.7ms / bwd 116.6ms。反传两条链：dX 在 sm86 上 cuDNN 的 INT8 dgrad/wgrad 直接 NOT_SUPPORTED（实测），只能 fp32 conv_transpose——它本身就是高效隐式 GEMM，int8 零收益；dW 的 SwitchBack 数学可行，但 unfold 展开+内存搬运按 FLOPs 同比例增长。
+
+3. **假设"kernel 时间 = 算力时间"——错，带宽与逐元素操作占大头**。3x3 大层也只有 2.3x（非 8x）：40px 分辨率下 GEMM 不够大，kernel 带宽受限而非算力受限。BN/SiLU 逐元素（~12ms）、quant 扫描（~15ms）、python 调度（~50ms）全都不随 int8 加速，纯开销。
+
+yolov8x@320 的 381ms 拆解：fwd ≈ quant 15 + cudnn fprop ~40（3x3 快/1x1 亏，净亏）；bwd ≈ dW 展开+GEMM ~150 + dX fp ~40 + quant 10 + 调度 ~50。**能在 int8 上赢钱的只有 fprop 的 3x3 大层（~30ms 量级），亏损项是它的 5-10 倍**。imgsz 320→640 时比值 0.47→0.49 略升（GEMM 更算力受限），方向对但远远不够。
+
+要让 int8 训练真正赢，缺的不是模型大小，而是 cuDNN 在 sm86 不给的三样东西：1x1 的 int8 kernel、dgrad/wgrad 的 int8 kernel、整图执行（省调度）。
 
 ### 最终瓶颈：Python 调度（语言层面的结构性天花板）
 
