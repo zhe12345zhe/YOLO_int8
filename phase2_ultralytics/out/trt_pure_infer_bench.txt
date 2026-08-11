@@ -1,0 +1,11 @@
+=== 纯 engine 推理延迟 (GPU only, 320x320, batch=1, 500次平均) ===
+fp32 FP32 1.020
+fp32 INT8 0.947
+qat FP32 0.886
+qat INT8 0.827
+qat_e FP32 0.893
+qat_e INT8 0.842
+=== FP32->INT8 纯推理加速比 ===
+fp32 speedup 1.08x (FP32 1.020ms -> INT8 0.947ms)
+qat speedup 1.07x (FP32 0.886ms -> INT8 0.827ms)
+qat_e speedup 1.06x (FP32 0.893ms -> INT8 0.842ms)

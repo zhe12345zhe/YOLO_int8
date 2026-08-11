@@ -22,6 +22,7 @@ YOLO_int8/
 │   ├── qat_prove.py         #   四层证据：结构/计数/消融/网格
 │   ├── show_weights.py      #   QAT vs FP32 权重逐层并排打印（weights_dump.txt）
 │   ├── export_onnx.py       #   导出 ONNX，统计假量化痕迹算子
+│   ├── deploy_int8.py       #   TensorRT FP32/INT8 engine 构建 + 精度/延迟对比部署脚本
 │   └── tee_run.py           #   子进程运行器（UTF-8 BOM 日志，防 Windows 转码乱码）
 ├── prepare_coco_full.py      # 全量 COCO2017 下载/标注转换/组装（--data-dir 指向数据盘）
 ├── deploy_remote.sh          # 远端部署入口：三阶段（fp32→wa→wae）训练流水线
@@ -59,6 +60,7 @@ YOLO_int8/
 | [H ONNX 导出检视](#wH) | 量化痕迹在导出图中的展开形式 | Round×90 / Div×190 / Mul×165 假量化展开，无 QDQ 节点 | `export_onnx.py` |
 | [I 全操作数量化（W+A+E，COCO128）](#wI) | 权重/激活/误差梯度三者全部 int8 的真实数据验证 | mAP50-95 0.5168（vs W+A 0.5281 掉 1.1 个点）——E 量化在检测网络上有损，与微型模型结论相反 | `qat_run_e.py` |
 | [J 全量 COCO2017（GPU，118k）](#wJ) | 大数据上三方案对比，验证 QAT 结论的稳健性 | W+A 掉 0.56 点（几乎无损）；W+A+E 掉 3.40 点（E 量化有损在大数据上更显著）；"QAT 超 FP32"证实为小数据集偶然 | `qat_run_big.py` · `deploy_remote.sh` |
+| [K TensorRT 部署（3080 Ti）](#wK) | 训练权重落地为真实 INT8 硬件加速 | INT8 engine 精度损失：普通权重 -7.1%、QAT_W+A -7.9%、**QAT_W+A+E 仅 -1.3%**；端到端延迟 2.2→2.0ms、纯推理 ~1.06-1.10x；QDQ 246 对节点断言 INT8 生效 | `deploy_int8.py` · `out/int8_bench.png` |
 
 ---
 
@@ -237,6 +239,53 @@ bash deploy_remote.sh full 15 320 16   # 自动: 准备数据 -> fp32 -> wa -> w
 ```
 
 结果写入 `phase2_ultralytics/out/phase2_big_results.txt`；权重 `runs/detect/out/{big_fp32,big_qat,big_qat_e}/weights/best.pt`（本仓库 `out/` 下已存档 `ckpt_fp32_best.pt` / `ckpt_qat_wa_best.pt` / `ckpt_qat_wae_best.pt`）。
+
+## 工作 K：TensorRT 部署 —— QAT 权重落地为真实 INT8 硬件加速 <a id="wK"></a>
+
+把工作 J 的三份训练权重（普通 FP32、QAT W+A、QAT W+A+E）部署为 TensorRT engine，在 **RTX 3080 Ti（12GB，TensorRT 11.2 / CUDA 13.0）** 上完成"量化训练 → 硬件加速"的完整闭环：每个权重构建 FP32 与 INT8 两个 engine，在 COCO val2017 全量 5000 张上对比精度，并分别测端到端（含 CPU 前后处理）与纯 engine 推理延迟。
+
+构建链路（ultralytics 8.4.117 导出，TRT11 强类型路径）：`.pt` → ONNX → **ModelOpt 静态量化 512 张校准图** → `best.int8.onnx`（显式 Q/DQ 节点）→ TensorRT 解析 QDQ 图构建 INT8 engine。INT8 生效的硬证据：三份 `best.int8.onnx` 各含 **246 对 QuantizeLinear/DequantizeLinear 节点**（对应 246 个量化张量），engine 即由该图构建。
+
+### 精度对比（val2017 5000 张，imgsz=320）
+
+| 权重 | mAP50 FP32→INT8 | mAP50-95 FP32→INT8 | INT8 损失 |
+|---|---|---|---|
+| 普通 FP32 | 0.3663 → 0.3404 | 0.2445 → 0.2196 | **-7.1%** / -2.4 点 |
+| QAT W+A | 0.3635 → 0.3348 | 0.2430 → 0.2142 | **-7.9%** / -2.9 点 |
+| QAT W+A+E | 0.2897 → 0.2858 | 0.1960 → 0.1890 | **-1.3%** / -0.7 点 |
+
+（结果文件 `out/int8_deploy_results.txt`，图 `out/int8_bench.png`。）
+
+### 延迟对比（batch=1, 320x320）
+
+| 测法 | FP32 engine | INT8 engine | speedup |
+|---|---|---|---|
+| 端到端（yolo predict，含 CPU 前/后处理，120 次平均） | 2.2 ms | 2.0 ms | ~1.07-1.10x |
+| 纯 engine 推理（GPU only，500 次平均） | 0.886-1.020 ms | 0.827-0.947 ms | ~1.06-1.08x |
+
+（纯推理明细 `out/trt_pure_infer_bench.txt`。）
+
+### 结论
+
+1. **QAT_W+A+E 对 int8 表示最"免疫"**：INT8 精度损失仅 -1.3%，普通权重同链路掉 7.1%（与工作 G 的消融结论一致——QAT 把权重训练得贴近 int8 网格，PTQ 式校准对未经量化训练的权重伤害更大）。注意其 FP32 基线本身低 0.29 vs 0.37（工作 J 已证明 E 量化有损）。
+2. **INT8 在 3080 Ti 上加速有限（~1.1x）**：yolov8n@320 仅 ~1ms 推理，kernel 启动/内存搬运占大头，且 Python 侧前后处理（~1.5ms）盖过 GPU 端收益；INT8 的吞吐优势在 batch>1、更大模型或更高分辨率下才明显。
+3. **端到端速度瓶颈在前后处理**：纯推理 0.8-1.0ms vs 端到端 2.0-2.2ms，前后处理占一半以上，落地的下一瓶颈是预处理流水线与 NMS，而非量化。
+
+复现（GPU 服务器，需 TensorRT 11 与 nvidia-modelopt）：
+
+```bash
+pip install tensorrt nvidia-modelopt  # TRT 11 强类型路径
+python deploy_int8.py --imgsz 320 --data /root/autodl-tmp/coco-full/data.yaml
+```
+
+坑位记录：TRT11 下 ultralytics 对 FP32/INT8 导出**同名** `best.engine`（INT8 覆盖 FP32）——`deploy_int8.py` 导出后立即改名 `best_{fp32,int8}.engine` 区分；TRT11 的 `IEngineInspector` 在序列化 engine 上不可靠（Myelin 崩溃），INT8 层统计改用 QDQ onnx 节点计数。
+
+产物存档（`phase2_ultralytics/out/trt_engines/`，随实例释放而失效，本地已备份）：
+
+| 文件 | 说明 |
+|---|---|
+| `{big_fp32,big_qat,big_qat_e}_{fp32,int8}.engine` | 6 个可直接部署的 TensorRT engine（3080 Ti / TRT 11.2 构建，~35-54MB） |
+| `{big_fp32,big_qat,big_qat_e}_qdq_int8.onnx` | 3 份 INT8 QDQ 图（各 246 对 Q/DQ 节点，INT8 精度证据与后续复用原料） |
 
 ## 复现方法
 

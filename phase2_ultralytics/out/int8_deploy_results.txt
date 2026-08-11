@@ -1,0 +1,4 @@
+# int8 deploy @ 2026-08-11 14:50:33 data=/root/autodl-tmp/coco-full/data.yaml imgsz=320 n=120
+FP32 mAP50=0.3404(F32 0.3663) mAP50-95=0.2196(F32 0.2445) lat=2.0ms(F32 2.2ms) speedup=1.09x | INT8层: QDQ_onnx_pairs:246
+QAT_W+A mAP50=0.3348(F32 0.3635) mAP50-95=0.2142(F32 0.2430) lat=2.0ms(F32 2.2ms) speedup=1.07x | INT8层: QDQ_onnx_pairs:246
+QAT_W+A+E mAP50=0.2858(F32 0.2897) mAP50-95=0.1890(F32 0.1960) lat=2.0ms(F32 2.2ms) speedup=1.10x | INT8层: QDQ_onnx_pairs:246

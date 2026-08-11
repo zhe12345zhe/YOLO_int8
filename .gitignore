@@ -11,7 +11,10 @@ __pycache__/
 
 # 数据集 / 生成产物 (脚本可复现)
 phase2_ultralytics/datasets/
-phase2_ultralytics/out/
+phase2_ultralytics/out/*
+!phase2_ultralytics/out/int8_deploy_results.txt
+!phase2_ultralytics/out/int8_bench.png
+!phase2_ultralytics/out/trt_pure_infer_bench.txt
 phase2_ultralytics/data/synth/images/
 phase2_ultralytics/data/synth/labels/
 phase2_ultralytics/yolov8n.pt

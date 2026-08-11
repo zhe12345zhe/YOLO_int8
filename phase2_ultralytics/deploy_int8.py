@@ -58,36 +58,48 @@ def bench_ms(model, imgsz, n=120, warmup=20):
 
 
 def trt_layer_precision(engine_path):
-    """返回 {precision_str: 层数}; 若 API 不可用返回 None。"""
+    """返回 {precision_str: 层数}; 若 API 不可用返回 None。
+
+    TRT11 的 IEngineInspector 在反序列化后的 engine 上会触发 Myelin C++ 崩溃,
+    不可靠; 改用 QDQ onnx 节点统计 (QuantizeLinear 对 = INT8 量化激活张量)。
+    """
     try:
-        import tensorrt as trt
-    except ImportError:
-        return None
-    try:
-        logger = trt.Logger(trt.Logger.WARNING)
-        runtime = trt.Runtime(logger)
-        with open(engine_path, "rb") as f:
-            engine = runtime.deserialize_cuda_engine(f.read())
-        prec = {}
-        for i in range(engine.num_layers):
-            p = str(engine.get_layer(i).precision)
-            prec[p] = prec.get(p, 0) + 1
-        return prec
+        import glob as _g
+        import onnx as _o
+        cands = [p for p in _g.glob(os.path.join(os.path.dirname(engine_path), "*.int8.onnx"))]
+        if not cands:
+            return None
+        m = _o.load(cands[0])
+        q = sum(1 for nd in m.graph.node if nd.op_type == "QuantizeLinear")
+        return {"QDQ_onnx_pairs": q}
     except Exception as e:
         print(f"  [warn] INT8 层统计失败: {e}")
         return None
 
 
 def export_engine(ckpt, imgsz, data, int8):
+    tag = "int8" if int8 else "fp32"
+    existing = sorted(glob.glob(os.path.join(os.path.dirname(ckpt), f"*_{tag}.engine")))
+    if existing:
+        p = existing[-1]
+        print(f"  {('INT8' if int8 else 'FP32 ')} engine (复用): {p}")
+        return p
     m = YOLO(ckpt)
     path = m.export(format="engine", imgsz=imgsz, device=0,
                     int8=int8, data=data if int8 else None)
     if not path:
-        cand = sorted(glob.glob(os.path.join(os.path.dirname(ckpt), "*_int8.engine"
-                                             if int8 else "*_fp32.engine")))
+        cand = sorted(glob.glob(os.path.join(os.path.dirname(ckpt), f"*_{tag}.engine")))
         path = cand[-1] if cand else None
-    print(f"  {('INT8' if int8 else 'FP32 ')} engine: {path}")
-    return path
+    if not path:
+        return None
+    # TRT11 下 ultralytics 对 FP32/INT8 均输出同名 best.engine (INT8 覆盖 FP32),
+    # 立即改名区分精度
+    base, ext = os.path.splitext(path)
+    new = f"{base}_{tag}{ext}"
+    if os.path.abspath(path) != os.path.abspath(new):
+        os.replace(path, new)
+    print(f"  {('INT8' if int8 else 'FP32 ')} engine: {new}")
+    return new
 
 
 def run_tensorrt(ckpt, tag, args, out_lines):
