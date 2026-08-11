@@ -23,6 +23,9 @@ YOLO_int8/
 │   ├── show_weights.py      #   QAT vs FP32 权重逐层并排打印（weights_dump.txt）
 │   ├── export_onnx.py       #   导出 ONNX，统计假量化痕迹算子
 │   ├── deploy_int8.py       #   TensorRT FP32/INT8 engine 构建 + 精度/延迟对比部署脚本
+│   ├── int8_engine.py       #   INT8 训练引擎（方案 B）：cuDNN INT8 fprop + SwitchBack dW（gemmEx 免转置）
+│   ├── int8_engine_train.py #   INT8 引擎训练/吞吐/数值验证入口（ultralytics 集成）
+│   ├── lt_ex.cu             #   cublasGemmEx int8 扩展（dW 转置版 GEMM，torch cpp_extension 编译）
 │   └── tee_run.py           #   子进程运行器（UTF-8 BOM 日志，防 Windows 转码乱码）
 ├── prepare_coco_full.py      # 全量 COCO2017 下载/标注转换/组装（--data-dir 指向数据盘）
 ├── deploy_remote.sh          # 远端部署入口：三阶段（fp32→wa→wae）训练流水线
@@ -61,6 +64,7 @@ YOLO_int8/
 | [I 全操作数量化（W+A+E，COCO128）](#wI) | 权重/激活/误差梯度三者全部 int8 的真实数据验证 | mAP50-95 0.5168（vs W+A 0.5281 掉 1.1 个点）——E 量化在检测网络上有损，与微型模型结论相反 | `qat_run_e.py` |
 | [J 全量 COCO2017（GPU，118k）](#wJ) | 大数据上三方案对比，验证 QAT 结论的稳健性 | W+A 掉 0.56 点（几乎无损）；W+A+E 掉 3.40 点（E 量化有损在大数据上更显著）；"QAT 超 FP32"证实为小数据集偶然 | `qat_run_big.py` · `deploy_remote.sh` |
 | [K TensorRT 部署（3080 Ti）](#wK) | 训练权重落地为真实 INT8 硬件加速 | INT8 engine 精度损失：普通权重 -7.1%、QAT_W+A -7.9%、**QAT_W+A+E 仅 -1.3%**；端到端延迟 2.2→2.0ms、纯推理 ~1.06-1.10x；QDQ 246 对节点断言 INT8 生效 | `deploy_int8.py` · `out/int8_bench.png` |
+| [L INT8 训练引擎（方案 B，GPU）](#wL) | 真 int8 GEMM 训练链路（前向 cuDNN INT8 + SwitchBack dW）在 3080 Ti 上能否加速 | 数值正确（前向/dW 误差 ~1.2%，dX 精确）；三轮工程 0.34x→0.57x 仍逊 fp32——瓶颈是 **Python 调度 35ms**（语言层面墙，非 kernel 能力）；cuDNN fprop 大层 2-4x 快、1x1 层 0.3x 慢 | `int8_engine.py` · `int8_engine_train.py` · `lt_ex.cu` |
 
 ---
 
@@ -286,6 +290,82 @@ python deploy_int8.py --imgsz 320 --data /root/autodl-tmp/coco-full/data.yaml
 |---|---|
 | `{big_fp32,big_qat,big_qat_e}_{fp32,int8}.engine` | 6 个可直接部署的 TensorRT engine（3080 Ti / TRT 11.2 构建，~35-54MB） |
 | `{big_fp32,big_qat,big_qat_e}_qdq_int8.onnx` | 3 份 INT8 QDQ 图（各 246 对 Q/DQ 节点，INT8 精度证据与后续复用原料） |
+
+## 工作 L：INT8 训练引擎（方案 B）—— 反向真正落盘到 int8 硬件 GEMM <a id="wL"></a>
+
+前面工作（A-J）的量化都是**假量化**（数值模拟，int8 仅在计算图中以 round/scale 形式出现），TensorRT 部署（工作 K）只覆盖推理。本工作把训练侧反传真正落到 int8 硬件矩阵乘法上，回答：**"用真 int8 GEMM 算子跑训练（前向 + SwitchBack dW），在 3080 Ti 上能否为 yolov8n 加速"**。
+
+### 方案 B 设计（SwitchBack 式）
+
+| 环节 | 精度策略 | 最终实现（三轮工程迭代后） |
+|---|---|---|
+| 卷积前向 | **int8** | **cuDNN 9 图 API INT8 隐式 GEMM 卷积**（免 im2col，sm86 实测大层快 2-4x）；x per-tensor 动态量化（在线 absmax） |
+| 权重梯度 dW | **int8（SwitchBack）** | 自写 CUDA extension 调 `cublasGemmEx`（transb=T 免内存转置）：`xq²ᵈᵀ @ dyq`，`(sx·sdy)` 放缩 |
+| 输入梯度 dX | **fp32（高精度）** | `conv_transpose2d`，不做 int8（cuDNN wgrad/dgrad 的 INT8 在 sm86 无引擎） |
+
+量化器：x/dy per-tensor 动态（Triton 融合 kernel，div+round+clamp+cast 一次读写）、w per-output-channel。`q`（round）路径用 STE。
+
+### `torch._int_mm` 的硬件约束（调试实录，部分已用 gemmEx 绕过）
+
+1. **行数必须是 32 的倍数**（实测 144 行 FAIL / 160 行 OK；此前以为"须 >16"是错觉）→ pad 或换 `cublasGemmEx`（transb=T 免转置）；
+2. **K 必须是 8/32 倍数**（im2col 后 `K=C·9`，如 27 → pad 到 32）→ `F.pad` 注意参数从最后一维开始排布，pad 行/列与另一因子的 pad 列/行对齐；
+3. **行数上限约 32K**（`49152×k` 可以、`65536×k` 挂/错）→ 首维分块 32768 后再 `cat`；
+4. CUDA 上 **int64 matmul 不可用**（CPU 模拟才走 int64 累加路径）；
+5. STE round 使数值 gradcheck 不适用（分段常数导数），改用逐张量相对误差断言。
+
+### 数值验证（GPU 真 kernel，PASS）
+
+| 检查项 | 相对误差 |
+|---|---|
+| GEMM 前向 | ~1.3% |
+| Conv 前向（cuDNN int8） | ~1.5% |
+| 权重梯度 dW（SwitchBack int8，gemmEx） | ~1.2% |
+| 输入梯度 dX | 3e-4（CUDA fp32 累加顺序差，其余 0.0） |
+
+整模型（yolov8n，COCO128）sanity PASS：45/64 层转 int8、159/184 参数有梯度、loss 有限。
+
+### 三轮工程迭代的吞吐轨迹（batch=16, imgsz=320, 同机对比）
+
+| 版本 | engine ms/step | vs FP32 | 累计改动 |
+|---|---|---|---|
+| ① 初版 im2col + `torch._int_mm` | 74.5 | 0.34x | unfold+转置+`_int_mm`，转置搬运 22ms 是最大单项 |
+| ② cuDNN INT8 fprop | 73.7 | 0.35x | fprop 换 cuDNN 图 API（单层 3-4x 快），但 dW 的 unfold+转置仍在 |
+| ③ int8 unfold 新路径 | 71.0 | — | unfold 后立即 cast int8 + `permute(1,0,2).reshape` 转置（31→6.9ms/160 层） |
+| ④ gemmEx 免转置 dW + Triton quant 融合 | 71.4 | **0.57x** | 自写 CUDA ext（`cublasGemmEx` transb=T）+ Triton quant kernel（单层 0.9→0.008ms） |
+
+最终同状态实测：FP32 原生 40.5ms（该实例后续被限功率 ~115W，满血时为 26ms）| engine 71.4ms。
+
+### 大模型验证（限功率状态下相对值）
+
+| 模型 | imgsz/bs | fp32 | engine | 比值 |
+|---|---|---|---|---|
+| yolov8n | 320/16 | 40.5 | 71.4 | 0.57x |
+| yolov8l | 320/16 | 111.7 | 270.8 | 0.41x |
+| yolov8x | 320/16 | 175.3 | 381.0 | 0.47x |
+
+单层分解显示 3x3 大层 int8 快 1.9-2.3x（收益真实），但 1x1 层 cuDNN int8 无优化 kernel（0.3x 慢）、dW 展开在大模型上成比例放大，收益被吞。
+
+### 最终瓶颈：Python 调度（语言层面的结构性天花板）
+
+`torch.profiler` 实测 engine 一步：**CUDA kernel 40ms + CPU 调度 35ms**（≈ 88% 并行度缺失，二者几乎串行）：
+
+- CUDA 侧（40ms）：dW 的 `int_mm` 6.9ms + unfold 3.6ms + BN/SiLU 逐元素 ~12ms + quant 扫描 1.1ms + cuDNN fprop ~2ms + dX ~3ms……
+- CPU 侧（35ms）：45 层 × 每层 ~15 次 kernel 启动（量化 1 + execute 1 + sdy 2 + 量化 1 + unfold 2 + cast 1 + 转置 1 + gemmEx 1 + convT 2 + scale 2……）的 Python dispatch 开销。kernel 启动 ~40-80μs/次 × ~500 次 ≈ 35ms
+
+**结论（诚实负结果）**：
+
+1. int8 单 kernel 收益是真实的（cuDNN fprop 大层 2-4x、gemmEx 免转置、quant 融合 100 倍），三轮工程把 engine/fp32 从 0.34x 改善到 0.57x；
+2. **但 Python 调度 35ms 是语言层面的墙**：PyTorch 手工引擎每层 ~15 次 kernel 启动，启动开销总量超过所有 int8 kernel 收益之和。想跨过它只剩"整模型编译成单个 cuDNN/CUDA 图"（一次 execute 全网络）——那相当于重写一个训练版 TensorRT，超出本工作射程；
+3. 与工作 K（推理部署）同构：int8 加速必须靠"整图融合"兑现，裸 kernel 替换在 Python 层拿不到。**3080 Ti + yolov8 场景下 INT8 训练引擎工程上不划算**，这是本项目的最终判断。
+
+复现（GPU 服务器，需 CUDA torch + ninja + nvcc）：
+
+```bash
+python int8_engine.py --sanity          # 数值验证（CPU 模拟 / cuda_intmm 双后端）
+python bench_final.py                   # fp32 / im2col / engine 三模式吞吐对比
+python int8_engine_train.py sanity      # 整模型 sanity
+python int8_engine_train.py train       # ultralytics 流水线接入（--epochs/--data/--imgsz）
+```
 
 ## 复现方法
 
