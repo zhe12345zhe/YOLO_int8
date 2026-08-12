@@ -361,6 +361,32 @@ python deploy_int8.py --imgsz 320 --data /root/autodl-tmp/coco-full/data.yaml
 - **真 int8 引擎 vs 假量化 QAT**（工作 F：-0.09 点）：真引擎略逊（每层 1.4% 硬量化误差逐层累积，feats 到深层 rel ~36%），但量级可接受——int8 训练引擎"精度可行、速度不划算"（0.6x 慢）是最终结论；
 - **AMP 精度实测闭环**：10 epochs 与 fp32 差 0.002（噪声级），官方默认配置的"不掉点"说法实测支持。
 
+### 涨点尝试：Distribution Adaptive INT8（论文 2102.04782）与 GVQ/EMA
+
+参考阿里达摩院论文 *Distribution Adaptive INT8 Quantization for Training CNNs*（2102.04782）——其核心贡献是梯度**按输出通道分别量化**（GVQ，替代我们的 per-tensor 全局量化）+ **Magnitude-aware Clipping**（长尾分布的 scale 用 EMA 平滑，有正则化效应），论文在 ImageNet 分类上 INT8 训练甚至微涨（ResNet-50 +0.09%）。据此给引擎加了 `--gvq` / `--ema-scale`（含论文的 P(|g|>σ)≤0.3 分布判别）开关：
+
+**COCO128 50 epochs（seed=0 确定性，噪声底 ±0.002）**：
+
+| 训练 | mAP50 | mAP50-95 |
+|---|---|---|
+| fp32 | 0.690 | 0.526 |
+| engine-B | 0.676 | 0.510 |
+| GVQ（dy 通道量化） | 0.677 | 0.511 |
+| GVQ + EMA（无条件/自适应） | 0.679 | 0.509 |
+
+**结论：GVQ/EMA 在 COCO128 上无改善**（全部在噪声内）。原因：论文涨点全部在分类任务（检测任务论文自己也只是"几乎无损"），且 COCO128 的 ±0.005 噪声底大于论文的 +0.3% 增益。
+
+**COCO2017 全量（bs32）的意外发现——GVQ 的稳定性价值**：
+
+| COCO2017 bs32 + lr0=0.005 10 epochs | mAP50-95 |
+|---|---|
+| engine-B | **崩**（0.001，loss 先升后降、val 先升后崩） |
+| **GVQ** | **0.140（稳定收敛）** |
+
+GVQ 的 per-channel 梯度量化在 bs32 下显著更稳（bs32 时 engine-B 的 per-tensor dy 量化不稳定——表现为 10 epochs 内 val 单调崩；bs16 下两者均稳定）。**这是论文"梯度分布感知"论点的实证**：per-channel 量化不仅减小误差，还提供训练稳定性。
+
+（记录：engine 对 lr 敏感——bs32 + 默认 lr0=0.01 崩得更早；bs32 的崩因未完全定位，bs16 为已验证可靠配置。COCO2017 bs16 的 GVQ vs engine-B 精度对比进行中。）
+
 ### 三轮工程迭代的吞吐轨迹（batch=16, imgsz=320, 同机对比）
 
 | 版本 | engine ms/step | vs FP32 | 累计改动 |

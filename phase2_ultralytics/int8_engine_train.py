@@ -39,17 +39,27 @@ def run_train(args):
             print(f"[int8_engine] 原生训练 (amp={args.amp}, 不 patch int8 引擎)")
             return
         patch_int8_engine(trainer.model, verbose=True)
+        import int8_engine as _ie
         if args.quantize_e:
-            import int8_engine as _ie
             _ie._QUANTIZE_E[0] = True
             print("[int8_engine] 方案 C: dX 链 E 量化已启用")
+        if args.gvq:
+            _ie.GVQ_ENABLED[0] = True
+            print("[int8_engine] GVQ: dy 按输出通道量化 (论文 2102.04782)")
+        if args.ema_scale:
+            _ie.EMA_SCALE[0] = True
+            print("[int8_engine] EMA scale: 梯度 scale 指数平滑 (论文 MCS)")
 
     model.add_callback("on_train_start", _on_start)
     t0 = time.time()
-    model.train(data=args.data, epochs=args.epochs, imgsz=args.imgsz, batch=args.batch,
-                device=args.device, workers=8, seed=0, project="out", name=args.name,
-                exist_ok=True, verbose=False, cache=False, amp=args.amp,
-                resume=args.resume)
+    kw = dict(data=args.data, epochs=args.epochs, imgsz=args.imgsz, batch=args.batch,
+              device=args.device, workers=8, seed=0, project="out", name=args.name,
+              exist_ok=True, verbose=False, cache=False, amp=args.amp,
+              resume=args.resume)
+    if args.lr0 is not None:
+        kw["lr0"] = args.lr0
+        kw["warmup_epochs"] = args.warmup_epochs
+    model.train(**kw)
     print(f"[int8_engine 训练] 用时 {time.time() - t0:.0f}s")
 
 
@@ -95,6 +105,10 @@ def main():
     p.add_argument("--amp", action="store_true", help="原生 AMP (不 patch int8 引擎)")
     p.add_argument("--no-patch", action="store_true", help="纯 fp32 原生训练 (不 patch)")
     p.add_argument("--quantize-e", action="store_true", help="方案 C: dX 链 E 量化")
+    p.add_argument("--gvq", action="store_true", help="GVQ: dy 按输出通道量化 (论文 2102.04782)")
+    p.add_argument("--ema-scale", action="store_true", help="EMA scale: 梯度 scale 指数平滑")
+    p.add_argument("--lr0", type=float, default=None, help="覆盖初始学习率 (int8 引擎对 lr 敏感)")
+    p.add_argument("--warmup-epochs", type=float, default=3.0, help="warmup epochs (lr 爬升期)")
 
     p = sub.add_parser("bench")
     p.add_argument("--ckpt", default="yolov8n.pt")

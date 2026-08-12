@@ -44,6 +44,22 @@ import torch.nn.functional as F
 
 INT8_GEMM_BACKEND = None  # "cuda_intmm" | "cpu_fp32_sim"; lazy 探测
 _QUANTIZE_E = [False]      # 方案 C: dX 链误差信号 E 也量化 (int8 GEMM)
+GVQ_ENABLED = [False]      # 论文 Distribution Adaptive INT8 (2102.04782): dy 按输出通道量化 (dW)
+EMA_SCALE = [False]        # 论文 MCS: 梯度 scale 用 EMA 更新 (正则化效应)
+EMA_ADAPTIVE = [True]      # 论文判别式: P(|g|>σ)<=0.3 (Inverted-T) 才用 EMA, 否则 absmax
+EMA_K, EMA_A = 1.0, 0.8    # 论文推荐超参 (k=1, A=0.8)
+EMA_LAMBDA = 0.3
+_EMA_STATE = {}            # weight_ptr -> sdy_ema (per-channel)
+
+
+def _use_ema(grad_y):
+    """论文判别式: P(|g|>σ) <= λ(0.3) 判为 Inverted-T 长尾分布 -> 用 EMA, 否则 Gaussian -> absmax。"""
+    if not EMA_ADAPTIVE[0]:
+        return True
+    g = grad_y.detach()
+    sigma = g.std().clamp(min=1e-8)
+    p = (g.abs() > sigma).float().mean().item()
+    return p <= EMA_LAMBDA
 
 
 def int8_gemm_backend():
@@ -296,6 +312,7 @@ class _Int8ConvCudnn(torch.autograd.Function):
         ctx.save_for_backward(xq, w, wq, sx, sw)
         ctx.pad = pad
         ctx.stride = stride
+        ctx.w_ptr = w.data_ptr()  # EMA 状态 key
         return y * (sx * sw).to(y.dtype)
 
     @staticmethod
@@ -304,7 +321,21 @@ class _Int8ConvCudnn(torch.autograd.Function):
         pad, stride = ctx.pad, ctx.stride
         N, C, H, W = xq.shape
         k = w.shape[2]
-        sdy = scale_absmax(grad_y)
+        # dy 量化 scale: GVQ = per-output-channel (论文 2102.04782), 否则 per-tensor
+        if GVQ_ENABLED[0] and not _QUANTIZE_E[0]:
+            sdy = scale_absmax(grad_y, dim=(0, 2, 3))        # (CO,1,1)
+            if EMA_SCALE[0] and _use_ema(grad_y):
+                prev = _EMA_STATE.get(ctx.w_ptr)
+                if prev is not None:
+                    sdy = (1 - EMA_K * EMA_A) * prev + EMA_A * sdy
+                _EMA_STATE[ctx.w_ptr] = sdy.detach().clone()
+        else:
+            sdy = scale_absmax(grad_y)                        # per-tensor 标量
+            if EMA_SCALE[0] and _use_ema(grad_y):
+                prev = _EMA_STATE.get(ctx.w_ptr)
+                if prev is not None:
+                    sdy = (1 - EMA_K * EMA_A) * prev + EMA_A * sdy
+                _EMA_STATE[ctx.w_ptr] = sdy.detach().clone()
         dyq = quant_tensor(grad_y, sdy)
         # SwitchBack dW: im2col(xq)ᵀ @ dyq
         col = F.unfold(F.pad(xq.float(), (pad[1], pad[1], pad[0], pad[0])),
@@ -314,7 +345,10 @@ class _Int8ConvCudnn(torch.autograd.Function):
         x2d = col_i.transpose(1, 2).reshape(NL, C * k * k)  # (NL, CK) 行主序 (int8 重排拷贝)
         dy2d = dyq.permute(0, 2, 3, 1).reshape(NL, -1)
         dw_i = _int8_gemm_ex_dw(x2d, dy2d)      # (CO, CK) (K=NL 分块防 int32 溢出)
-        dw = dw_i.to(grad_y.dtype) * (sx * sdy).to(grad_y.dtype)
+        if GVQ_ENABLED[0] and not _QUANTIZE_E[0]:
+            dw = dw_i.to(grad_y.dtype) * (sx * sdy.reshape(-1, 1)).to(grad_y.dtype)  # per-channel
+        else:
+            dw = dw_i.to(grad_y.dtype) * (sx * sdy).to(grad_y.dtype)
         dw = dw.reshape(-1, C, k, k)
         # dX: 方案 B = fp 高精度 (conv_transpose); 方案 C (quantize_e) = int8 GEMM (E 量化)
         if _QUANTIZE_E[0]:
@@ -706,9 +740,17 @@ def main():
     ap.add_argument("--smoke", action="store_true", help="跑整模型 smoke (需 yolov8n.pt)")
     ap.add_argument("--quantize-e", action="store_true",
                     help="方案 C: dX 链误差信号 E 也走 int8 GEMM (默认方案 B: dX 高精度)")
+    ap.add_argument("--gvq", action="store_true",
+                    help="GVQ (论文 2102.04782): dy 按输出通道量化 (dW)")
+    ap.add_argument("--ema-scale", action="store_true",
+                    help="EMA scale (论文 MCS): 梯度 scale 指数平滑, 正则化效应")
     args = ap.parse_args()
     if args.quantize_e:
         _QUANTIZE_E[0] = True
+    if args.gvq:
+        GVQ_ENABLED[0] = True
+    if args.ema_scale:
+        EMA_SCALE[0] = True
     if args.sanity:
         res = sanity_check(verbose=True)
         ok = res.get("pass")
