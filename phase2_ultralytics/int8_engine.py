@@ -43,6 +43,7 @@ import torch.nn.functional as F
 # ----------------------------------------------------------------------------
 
 INT8_GEMM_BACKEND = None  # "cuda_intmm" | "cpu_fp32_sim"; lazy 探测
+_QUANTIZE_E = [False]      # 方案 C: dX 链误差信号 E 也量化 (int8 GEMM)
 
 
 def int8_gemm_backend():
@@ -254,7 +255,7 @@ class _Int8ConvCudnn(torch.autograd.Function):
 
     forward : y = cudnn_int8_conv(xq, wq) * (sx*sw)   (per-tensor, cuDNN 限制)
     backward: dw = int8_gemm(xqᵀ, dyq) * (sx*sdy)    (SwitchBack, 复用 _int_mm/im2col)
-              dx = conv_transpose(dy, w)              (fp 高精度, cuDNN 无 INT8 dgrad)
+              dx = conv_transpose(dy, w)              (fp 高精度; quantize_e=True 时走 int8, 方案 C)
     """
 
     @staticmethod
@@ -264,14 +265,14 @@ class _Int8ConvCudnn(torch.autograd.Function):
         xq = quant_tensor(x, sx)
         wq = quant_tensor(w, sw)
         y = _cudnn_conv_fprop(xq, wq, pad, stride)
-        ctx.save_for_backward(xq, w, sx, sw)
+        ctx.save_for_backward(xq, w, wq, sx, sw)
         ctx.pad = pad
         ctx.stride = stride
         return y * (sx * sw).to(y.dtype)
 
     @staticmethod
     def backward(ctx, grad_y):
-        xq, w, sx, sw = ctx.saved_tensors
+        xq, w, wq, sx, sw = ctx.saved_tensors
         pad, stride = ctx.pad, ctx.stride
         N, C, H, W = xq.shape
         k = w.shape[2]
@@ -289,7 +290,14 @@ class _Int8ConvCudnn(torch.autograd.Function):
             dw_i = int8_gemm(x2d.transpose(0, 1).contiguous(), dy2d).T.contiguous()  # 回退
         dw = dw_i.to(grad_y.dtype) * (sx * sdy).to(grad_y.dtype)
         dw = dw.reshape(-1, C, k, k)
-        # dX 高精度: conv_transpose (CUDA 无 INT8 dgrad, sm86 实测 NOT_SUPPORTED)
+        # dX: 方案 B = fp 高精度 (conv_transpose); 方案 C (quantize_e) = int8 GEMM (E 量化)
+        if _QUANTIZE_E[0]:
+            wq2d = wq.reshape(-1, C * k * k)                   # (CO, CK) 行主序
+            dx_i = int8_gemm(dy2d, wq2d)                       # (NL, CK) = dyq @ wq^T (免转置)
+            dx = dx_i.to(grad_y.dtype) * (sdy * sw).to(grad_y.dtype)
+            dx = F.fold(dx.reshape(N, NL // N, C * k * k).transpose(1, 2),
+                        output_size=(H, W), kernel_size=k, stride=stride, padding=pad)
+            return dx, dw, None, None
         if stride[0] == 1:
             dx = F.conv_transpose2d(grad_y, w, stride=stride, padding=pad)
         else:
@@ -317,19 +325,29 @@ class _Int8GemmB(torch.autograd.Function):
         wq = quant_tensor(w, sw)                     # (K, M) 静态每步重算
         yq = int8_gemm(xq, wq)                        # (N, M) int32
         y = yq.to(x.dtype) * (sx * sw.to(x.dtype))   # dequant
-        ctx.save_for_backward(xq, w, sx, sw)
+        ctx.save_for_backward(xq, w, wq, sx, sw)
         return y
 
     @staticmethod
     def backward(ctx, grad_y):
-        xq, w, sx, sw = ctx.saved_tensors
+        xq, w, wq, sx, sw = ctx.saved_tensors
         sdy = scale_absmax(grad_y)                   # 误差 E 动态量化 (每 batch)
         dyq = quant_tensor(grad_y, sdy)              # (N, M) int8
-        # SwitchBack: dW = int8(xq).T @ int8(dy) * (sx * sdy)
-        dw_i = int8_gemm(xq.transpose(0, 1), dyq)    # (K, M) int32
+        # SwitchBack: dW = int8(xq).T @ int8(dy) * (sx * sdy)  (gemmEx 免转置)
+        dw_i = _int8_gemm_ex(xq, dyq)                        # (M, K) int32
+        if dw_i is None:
+            dw_i = int8_gemm(xq.transpose(0, 1), dyq)        # 回退 (K, M)
+        else:
+            dw_i = dw_i.transpose(0, 1).contiguous()         # (K, M) 小矩阵转置
         dw = dw_i.to(grad_y.dtype) * (sx * sdy.to(grad_y.dtype))
-        # dX 保高精度: dx = dy @ W^T (不量化, 方案 A/B 一致)
-        dx = grad_y @ w.transpose(0, 1)
+        # dX: 方案 A/B = fp (dy @ W^T); 方案 C (quantize_e) = int8 (E 量化, w 用 per-tensor)
+        if _QUANTIZE_E[0]:
+            sw_t = scale_absmax(w).reshape(1, 1)
+            wq_t = quant_tensor(w, sw_t)
+            dx_i = int8_gemm(dyq, wq_t.transpose(0, 1).contiguous())   # (N, K)
+            dx = dx_i.to(grad_y.dtype) * (sdy * sw_t).to(grad_y.dtype)
+        else:
+            dx = grad_y @ w.transpose(0, 1)
         return dx, dw, None, None
 
 
@@ -364,6 +382,17 @@ class Int8Conv2d(nn.Conv2d):
         pad = (self.padding[0], self.padding[1])
         Ho = (H + 2 * pad[0] - k) // stride[0] + 1
         Wo = (W + 2 * pad[1] - k) // stride[1] + 1
+        # ---- 1x1 专用 GEMM 路径: 1x1 即纯 GEMM, cuDNN int8 1x1 kernel 无优化 (0.3x 慢),
+        #      用 _Int8GemmB (int8 GEMM, SwitchBack dW gemmEx 免转置, fp dX), 实测达 ~1.0x fp32 ----
+        if k == 1 and _cudnn_available():
+            x2d = x.permute(0, 2, 3, 1).reshape(N * H * W, C)  # (NL, C)
+            w2d = self.weight.reshape(M, C).transpose(0, 1).contiguous()  # (C, M)
+            sx = scale_absmax(x2d).reshape(1, 1)
+            sw = scale_absmax(w2d, dim=0)                    # (1, M) per-output-channel
+            y = int8_gemm_b(x2d, w2d, sx, sw)                 # (NL, M) fp
+            if self.bias is not None:
+                y = y + self.bias.reshape(1, M)
+            return y.reshape(N, H, W, M).permute(0, 3, 1, 2)
         # ---- cuDNN INT8 隐式 GEMM 后端 (免 im2col, 仅 fprop; 3080Ti 快 3-4x) ----
         if _cudnn_available():
             y = _Int8ConvCudnn.apply(x, self.weight, pad, stride)
@@ -565,8 +594,10 @@ def sanity_check(verbose=True):
     dxp = F.conv_transpose2d(go, mh.weight, stride=2, padding=0, output_padding=1)
     dx_ref = dxp[..., 1:-1, 1:-1]
     res["dx_rel_err"] = _rel_err(dx_engine, dx_ref)
-    # CUDA 上 unfold 反向与 conv_transpose 的 fp32 累加顺序不同, 允许 ~3e-4 浮点差异
-    assert res["dx_rel_err"] < 5e-3, "dX 高精度路径应有近零误差"
+    # CUDA 上 unfold 反向与 conv_transpose 的 fp32 累加顺序不同, 允许 ~3e-4 浮点差异;
+    # 方案 C (quantize_e) 时 dX 走 int8 (dy/w 量化), 误差为量化级 ~2%
+    dx_tol = 5e-3 if not _QUANTIZE_E[0] else 0.05
+    assert res["dx_rel_err"] < dx_tol, "dX 路径误差超预期"
 
     # 4) gradcheck (输入/权重)
     gx = torch.randn(4, 8, 12, 12, device=dev, requires_grad=True)
@@ -587,7 +618,7 @@ def sanity_check(verbose=True):
     res["gradcheck"] = "n/a (STE round, 数值差分不适用)"
     res["pass"] = bool(res["conv_fwd_rel_err"] < 0.05
                        and res["dw_rel_err"] < 0.10
-                       and res["dx_rel_err"] < 5e-3)
+                       and res["dx_rel_err"] < dx_tol)
 
     if verbose:
         print(f"[sanity] backend={res['backend']} device={res['device']}")
@@ -638,7 +669,11 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--sanity", action="store_true", help="跑数值验证")
     ap.add_argument("--smoke", action="store_true", help="跑整模型 smoke (需 yolov8n.pt)")
+    ap.add_argument("--quantize-e", action="store_true",
+                    help="方案 C: dX 链误差信号 E 也走 int8 GEMM (默认方案 B: dX 高精度)")
     args = ap.parse_args()
+    if args.quantize_e:
+        _QUANTIZE_E[0] = True
     if args.sanity:
         res = sanity_check(verbose=True)
         ok = res.get("pass")
