@@ -64,7 +64,7 @@ YOLO_int8/
 | [I 全操作数量化（W+A+E，COCO128）](#wI) | 权重/激活/误差梯度三者全部 int8 的真实数据验证 | mAP50-95 0.5168（vs W+A 0.5281 掉 1.1 个点）——E 量化在检测网络上有损，与微型模型结论相反 | `qat_run_e.py` |
 | [J 全量 COCO2017（GPU，118k）](#wJ) | 大数据上三方案对比，验证 QAT 结论的稳健性 | W+A 掉 0.56 点（几乎无损）；W+A+E 掉 3.40 点（E 量化有损在大数据上更显著）；"QAT 超 FP32"证实为小数据集偶然 | `qat_run_big.py` · `deploy_remote.sh` |
 | [K TensorRT 部署（3080 Ti）](#wK) | 训练权重落地为真实 INT8 硬件加速 | INT8 engine 精度损失：普通权重 -7.1%、QAT_W+A -7.9%、**QAT_W+A+E 仅 -1.3%**；端到端延迟 2.2→2.0ms、纯推理 ~1.06-1.10x；QDQ 246 对节点断言 INT8 生效 | `deploy_int8.py` · `out/int8_bench.png` |
-| [L INT8 训练引擎（方案 B，GPU）](#wL) | 真 int8 GEMM 训练链路（前向 cuDNN INT8 + SwitchBack dW）在 3080 Ti 上能否加速 | 数值正确（前向/dW 误差 ~1.2%，dX 精确）；三轮工程 0.34x→0.57x 仍逊 fp32；大模型(yolov8l/x 0.41-0.49x)翻不了盘——1x1 层 int8 慢 3 倍、dX/dgrad 在 sm86 无 INT8、瓶颈为 **Python 调度 35ms**（语言层面墙） | `int8_engine.py` · `int8_engine_train.py` · `lt_ex.cu` |
+| [L INT8 训练引擎（方案 B，GPU）](#wL) | 真 int8 GEMM 训练链路（前向 cuDNN INT8 + SwitchBack dW）在 3080 Ti 上能否加速 | 数值正确（前向/dW 误差 ~1.2%，dX 精确）；三轮工程 0.34x→0.59x 仍逊 fp32；大模型(yolov8l/x 0.41-0.49x)翻不了盘——1x1 层 int8 慢 3 倍、dX/dgrad 在 sm86 无 INT8、CUDA 13.1 无 EPILOGUE_SCALE；瓶颈为 **Python 调度 35ms**；**AMP 对照：大模型 1.6-1.9x 且不掉点（官方默认配置），一行代码胜三轮工程** | `int8_engine.py` · `int8_engine_train.py` · `lt_ex.cu` |
 
 ---
 
@@ -369,6 +369,25 @@ yolov8x@320 的 381ms 拆解：fwd ≈ quant 15 + cudnn fprop ~40（3x3 快/1x1 
 1. int8 单 kernel 收益是真实的（cuDNN fprop 大层 2-4x、gemmEx 免转置、quant 融合 100 倍），三轮工程把 engine/fp32 从 0.34x 改善到 0.57x；
 2. **但 Python 调度 35ms 是语言层面的墙**：PyTorch 手工引擎每层 ~15 次 kernel 启动，启动开销总量超过所有 int8 kernel 收益之和。想跨过它只剩"整模型编译成单个 cuDNN/CUDA 图"（一次 execute 全网络）——那相当于重写一个训练版 TensorRT，超出本工作射程；
 3. 与工作 K（推理部署）同构：int8 加速必须靠"整图融合"兑现，裸 kernel 替换在 Python 层拿不到。**3080 Ti + yolov8 场景下 INT8 训练引擎工程上不划算**，这是本项目的最终判断。
+
+### FP16 AMP 对照：训练加速的现实路径（一行代码 vs 三轮工程）
+
+对"训练加速"本身而言，成熟工具链给出了更优答案——PyTorch AMP（fp16 混合精度，`torch.autocast` 一行）。同机同状态实测（限功率）：
+
+| 模型 | imgsz/bs | fp32 | AMP | INT8 引擎 | AMP 加速 |
+|---|---|---|---|---|---|
+| yolov8n | 320/16 | 33.1 | 38.4 | 71.4 | **0.86x（反而慢）** |
+| yolov8l | 320/16 | 111.9 | 64.5 | 214.9 | **1.73x** |
+| yolov8x | 320/16 | 174.8 | 108.3 | 294.5 | **1.61x** |
+| yolov8x | 640/8 | 359.6 | 187.5 | 790.8 | **1.92x** |
+
+三个观察：
+
+1. **AMP 完胜 INT8 引擎**：yolov8x@320 上 AMP 108ms vs int8 引擎 294ms，快 2.7 倍——`torch.autocast` 一行打败了工作 L 全部三轮工程。int8 的 8x 算力优势被调度/量化/展开吃掉后，不如 fp16 的 2x 内存优势兑现得干净；
+2. **yolov8n 上 AMP 也慢（0.86x）**——与 int8 引擎同构的病：小模型 kernel 启动/调度开销主导，类型转换开销 > fp16 kernel 收益。带宽/调度受限场景下"精度减半"的收益兑现不了，模型/分辨率足够大（算力受限）后才显现（640px 达 1.92x）；
+3. **AMP 基本不掉点**：`amp=True` 是 ultralytics 官方默认训练配置（官方 COCO 权重全部是 AMP 产物，与 fp32 差异 <0.1 点噪声级）。机制上 fp16 是"软降级"——权重保持 fp32 master copy、梯度 fp32 累加 + GradScaler、BN 走 fp32，每步误差 ~1e-3 不累积；对比 int8 的"硬降级"（工作 I/J 的 E 量化掉 1.1→3.4 点、STE 近似、逐层累积）。
+
+**项目最终闭环**：训练加速用 AMP（大模型 1.6-1.9x、零工程、零掉点）；int8 的正确位置在推理部署（工作 K，TRT INT8 收益有限但真实）。INT8 训练引擎在本场景的结论是硬负结果——但它的全部中间证据（调度墙、1x1 无 kernel、dgrad/wgrad 无 INT8、int32 落地 4x 流量、CUDA 13.1 无 EPILOGUE_SCALE）对任何想再做 int8 训练的人都是完整的地图。
 
 复现（GPU 服务器，需 CUDA torch + ninja + nvcc）：
 
