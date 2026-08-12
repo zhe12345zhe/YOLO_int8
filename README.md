@@ -320,9 +320,23 @@ python deploy_int8.py --imgsz 320 --data /root/autodl-tmp/coco-full/data.yaml
 | GEMM 前向 | ~1.3% |
 | Conv 前向（cuDNN int8） | ~1.5% |
 | 权重梯度 dW（SwitchBack int8，gemmEx） | ~1.2% |
-| 输入梯度 dX | 3e-4（CUDA fp32 累加顺序差，其余 0.0） |
+| 输入梯度 dX | 3e-4（CUDA fp32 累加顺序差，其余 0.0）；方案 C（E 量化）~1.2% |
 
-整模型（yolov8n，COCO128）sanity PASS：45/64 层转 int8、159/184 参数有梯度、loss 有限。
+整模型（yolov8n，COCO128）sanity PASS：45/64 层转 int8、loss 有限。
+
+### 方案 C：全操作数 int8（E 量化）实现与闭环
+
+`--quantize-e` 开关把方案 C 补齐：**dX 链的误差信号 E 也走 int8 GEMM**（`dyq @ wqᵀ`，dy 复用 dW 的 dyq 零额外量化、w 用 per-tensor wq 保证 scale 可提出，`F.fold`/col2im 还原），实现"前向 + dW + dX 三链全 int8"的完整训练引擎：
+
+| 指标 | 方案 B（dX fp） | 方案 C（E 量化） |
+|---|---|---|
+| dx 相对误差 | 0.0（精确） | **1.17%**（dy+w 量化） |
+| 整模型梯度流通 | 183/184 | 183/184（全有限） |
+| 吞吐（n@320/bs16） | 73.2 ms | 78.4 ms（更慢：小 K GEMM 分块 + fold 开销） |
+
+结论：方案 C 把工作 I/J 假量化结论在**真 int8 引擎**上闭环——E 量化引入 1.17% 的 dX 误差（即工作 I/J 掉 1.1-3.4 点的根源），且吞吐更差。**全 int8 训练链工程可行但无收益，方案 B 仍是推荐配置**。
+
+（附：smoke 的 183/184 梯度 = box/dfl 损失在随机噪声输入下为 0 所致——TaskAlignedAssigner 分不到正样本，`box_loss`/`dfl_loss` 恒 0，cv2 分支梯度全零、dfl 梯度 None。真实数据训练时全部 184 个参数正常收到梯度，非引擎问题。）
 
 ### 三轮工程迭代的吞吐轨迹（batch=16, imgsz=320, 同机对比）
 
