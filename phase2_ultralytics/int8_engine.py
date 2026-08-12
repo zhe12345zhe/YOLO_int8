@@ -114,11 +114,10 @@ _QUANT_JIT = [None]
 
 def _triton_quant(x, scale):
     """单 kernel 融合量化: div+round+clamp+cast 一次读写 (省 3 次 elementwise pass)。"""
+    import triton
+    import triton.language as tl
     try:
         if _QUANT_JIT[0] is None:
-            import triton
-            import triton.language as tl
-
             @triton.jit
             def _quant_kernel(X, OUT, S, N, BLOCK: tl.constexpr):
                 offs = tl.program_id(0) * BLOCK + tl.arange(0, BLOCK)
@@ -133,14 +132,20 @@ def _triton_quant(x, scale):
             _QUANT_JIT[0] = _quant_kernel
         k = _QUANT_JIT[0]
         n = x.numel()
-        out = torch.empty_like(x, dtype=torch.int8)
+        # empty 必须连续: empty_like 对非连续输入保留 stride (preserve_format),
+        # 其 reshape(-1) 视图会让 kernel 裸指针写错位置 (实测输出全 0)
+        out = torch.empty(x.shape, dtype=torch.int8, device=x.device)
         if scale.numel() != 1:
             return None  # per-channel 用 torch
         s_t = scale.detach().reshape(-1).contiguous()
         BLOCK = 1024
-        k[(triton.cdiv(n, BLOCK),)](x.reshape(-1), out.reshape(-1), s_t, n, BLOCK)
+        # 必须 contiguous: reshape(-1) 对非连续视图返回非连续 1D, Triton 裸指针按逻辑索引
+        # 会读错位置 (实测 permute 视图产生 -128/数值错乱)
+        xf = x.contiguous().reshape(-1)
+        k[(triton.cdiv(n, BLOCK),)](xf, out.reshape(-1), s_t, n, BLOCK)
         return out
-    except Exception:
+    except Exception as e:  # noqa: BLE001
+        print(f"[_triton_quant] 异常: {type(e).__name__}: {str(e)[:150]}")
         return None
 
 
@@ -250,6 +255,29 @@ def _int8_gemm_ex(x2d, dy2d):
     return dw[:, :CK]
 
 
+def _int8_gemm_ex_dw(x2d, dy2d, chunk_k=32768):
+    """dW 专用: 沿收缩维 K=NL 分块, 防 int32 累加溢出。
+
+    int32 累加上限: 块内 K <= 32768 -> 32768*127*127 = 5.3e8 < 2^31 (2.1e9) 安全;
+    不分块时 K=NL=409600 -> 6.6e9 溢出 (实测训练梯度爆炸, grad_norm 4058)。
+    各块 int32 结果以 fp32 累加 (数学等价)。
+    """
+    NL = x2d.shape[0]
+    if NL <= chunk_k:
+        r = _int8_gemm_ex(x2d, dy2d)
+        if r is None:
+            r = int8_gemm(x2d.transpose(0, 1).contiguous(), dy2d).T.contiguous()
+        return r
+    acc = None
+    for i in range(0, NL, chunk_k):
+        blk = _int8_gemm_ex(x2d[i:i + chunk_k], dy2d[i:i + chunk_k])
+        if blk is None:
+            blk = int8_gemm(x2d[i:i + chunk_k].transpose(0, 1).contiguous(),
+                            dy2d[i:i + chunk_k]).T.contiguous()
+        acc = blk.to(torch.float32) if acc is None else acc + blk.to(torch.float32)
+    return acc  # (CO, CK) fp32
+
+
 class _Int8ConvCudnn(torch.autograd.Function):
     """cuDNN INT8 隐式 GEMM 卷积 (前向) + SwitchBack 式梯度。
 
@@ -285,9 +313,7 @@ class _Int8ConvCudnn(torch.autograd.Function):
         NL = col_i.shape[0] * col_i.shape[2]
         x2d = col_i.transpose(1, 2).reshape(NL, C * k * k)  # (NL, CK) 行主序 (int8 重排拷贝)
         dy2d = dyq.permute(0, 2, 3, 1).reshape(NL, -1)
-        dw_i = _int8_gemm_ex(x2d, dy2d)             # (CO, CK) int32 (cublas 免转置)
-        if dw_i is None:
-            dw_i = int8_gemm(x2d.transpose(0, 1).contiguous(), dy2d).T.contiguous()  # 回退
+        dw_i = _int8_gemm_ex_dw(x2d, dy2d)      # (CO, CK) (K=NL 分块防 int32 溢出)
         dw = dw_i.to(grad_y.dtype) * (sx * sdy).to(grad_y.dtype)
         dw = dw.reshape(-1, C, k, k)
         # dX: 方案 B = fp 高精度 (conv_transpose); 方案 C (quantize_e) = int8 GEMM (E 量化)
@@ -436,15 +462,10 @@ def _cudnn_available():
 
 
 def _cudnn_nhwc_stride(dim):
-    n, c, *sp = dim
-    s = 1
-    st = []
-    for x in reversed(sp):
-        st.insert(0, s)
-        s *= x
-    st.insert(0, s)
-    st.insert(0, s * c)
-    return st
+    """NHWC 布局 stride (c 在最内, stride 1)。旧实现错位 (C-stride=H*W, H-stride=W),
+    导致 cuDNN 对 C=64 等形状的输出布局错乱 (实测 model.5 起 rel 100% 误差)。"""
+    n, c, h, w = dim
+    return [h * w * c, 1, w * c, c]
 
 
 def _cudnn_conv_fprop(xq, wq, pad, stride):
@@ -551,6 +572,20 @@ def sanity_check(verbose=True):
         got = int8_gemm(a, b)
         assert torch.equal(got, ref), f"K={k} pad 对齐错误"
     res["kpad_align"] = "PASS"
+
+    # 1b) int32 溢出回归: dW 的收缩维 K=NL 可达 409600 (160px 层), 127*127*409600
+    #     = 6.6e9 > 2^31 会溢出 (实测训练梯度爆炸); 分块后应与 fp64 参考一致 (量化误差内)
+    if torch.cuda.is_available():
+        n_big, ck_big, co_big = 262144, 576, 32
+        xb = torch.randint(-127, 127, (n_big, ck_big), dtype=torch.int8, device=dev)
+        dyb = torch.randint(-127, 127, (n_big, co_big), dtype=torch.int8, device=dev)
+        dw_big = _int8_gemm_ex_dw(xb, dyb).to(torch.float64)
+        ref_big = (xb.to(torch.float64).T @ dyb.to(torch.float64)).T  # (CO, CK)
+        rel_big = (dw_big - ref_big).abs().max().item() / ref_big.abs().max().item()
+        res["int32_overflow_regress"] = rel_big
+        assert rel_big < 0.05, f"dW int32 溢出未修复 (rel {rel_big})"
+    else:
+        res["int32_overflow_regress"] = "cpu-skip"
 
     # 1) GEMM 数值: 小矩阵精确一致 (int8 值域内), 大矩阵误差 = 量化误差
     for n, k, m in [(32, 32, 32), (32, 256, 64), (128, 512, 128)]:

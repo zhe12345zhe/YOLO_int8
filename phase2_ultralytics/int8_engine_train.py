@@ -35,13 +35,20 @@ def run_train(args):
     def _on_start(trainer):
         for p in trainer.model.parameters():
             p.requires_grad_(True)
+        if args.amp or args.no_patch:
+            print(f"[int8_engine] 原生训练 (amp={args.amp}, 不 patch int8 引擎)")
+            return
         patch_int8_engine(trainer.model, verbose=True)
+        if args.quantize_e:
+            import int8_engine as _ie
+            _ie._QUANTIZE_E[0] = True
+            print("[int8_engine] 方案 C: dX 链 E 量化已启用")
 
     model.add_callback("on_train_start", _on_start)
     t0 = time.time()
     model.train(data=args.data, epochs=args.epochs, imgsz=args.imgsz, batch=args.batch,
                 device=args.device, workers=8, seed=0, project="out", name=args.name,
-                exist_ok=True, verbose=False, cache=False, amp=False,
+                exist_ok=True, verbose=False, cache=False, amp=args.amp,
                 resume=args.resume)
     print(f"[int8_engine 训练] 用时 {time.time() - t0:.0f}s")
 
@@ -78,13 +85,16 @@ def main():
 
     p = sub.add_parser("train")
     p.add_argument("--ckpt", default="yolov8n.pt")
-    p.add_argument("--data", default=DEFAULT_DATA)
+    p.add_argument("--data", default="datasets/coco128/data.yaml")
     p.add_argument("--epochs", type=int, default=15)
     p.add_argument("--imgsz", type=int, default=320)
     p.add_argument("--batch", type=int, default=16)
     p.add_argument("--device", default="0")
     p.add_argument("--name", default="int8_engine_b")
     p.add_argument("--resume", action="store_true")
+    p.add_argument("--amp", action="store_true", help="原生 AMP (不 patch int8 引擎)")
+    p.add_argument("--no-patch", action="store_true", help="纯 fp32 原生训练 (不 patch)")
+    p.add_argument("--quantize-e", action="store_true", help="方案 C: dX 链 E 量化")
 
     p = sub.add_parser("bench")
     p.add_argument("--ckpt", default="yolov8n.pt")

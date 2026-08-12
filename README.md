@@ -338,6 +338,29 @@ python deploy_int8.py --imgsz 320 --data /root/autodl-tmp/coco-full/data.yaml
 
 （附：smoke 的 183/184 梯度 = box/dfl 损失在随机噪声输入下为 0 所致——TaskAlignedAssigner 分不到正样本，`box_loss`/`dfl_loss` 恒 0，cv2 分支梯度全零、dfl 梯度 None。真实数据训练时全部 184 个参数正常收到梯度，非引擎问题。）
 
+### 训练精度验证（COCO128, 320px, bs16）与三个隐藏 bug 的修复
+
+引擎首次真实训练暴露了三个 sanity 覆盖不到的 bug（全部已修复并有回归测试）：
+
+1. **dW int32 累加溢出**：dW 收缩维 K=NL（160px 层 409600），`409600×127×127 = 6.6e9 > 2^31` → 梯度爆炸（grad_norm 4058，权重被破坏、mAP 崩到 0.004）。sanity 未暴露（测试规模 NL≤4096）。修复：沿 K 分块 32768 + fp32 累加（回归测试与 fp64 参考逐位一致）。
+2. **Triton quant 对非连续输入错乱**：`x.reshape(-1)` 对 permute 视图返回非连续 1D 视图，kernel 裸指针按逻辑索引读错位；`empty_like` 对非连续输入保留 stride 使输出也错位。修复：输入/输出显式连续（`contiguous()` + `torch.empty(shape)`）。
+3. **`_cudnn_nhwc_stride` 布局算错**：C-stride 应为 1、H-stride 应为 W×C，旧实现全错 → C=64 等形状 cuDNN 输出布局错乱（model.5 起 rel 100% 误差）。修复后单层误差回到 1.4%。
+
+修复后完整训练对比（seed=0 确定性）：
+
+| 训练 | 10 epochs mAP50-95 | 50 epochs mAP50-95 | 50 epochs 掉点 | 训练步 |
+|---|---|---|---|---|
+| 真 fp32 | 0.445 | **0.526** | 基准 | ~78 ms |
+| AMP | 0.443 | —（与 fp32 持平，官方默认配置） | ~0 | ~40 ms |
+| engine B（int8） | 0.361（-8.3 点） | **0.510** | **-1.7 点** | ~125 ms |
+| engine C（E 量化） | 0.362（-8.3 点） | **0.503** | **-2.3 点** | ~127 ms |
+
+结论：
+
+- **网格适配假设成立**：10→50 epochs 掉点从 -8.3 收窄到 -1.7——训练中权重向 int8 网格靠拢（工作 G 的 QAT 机制），量化噪声被吸收；
+- **真 int8 引擎 vs 假量化 QAT**（工作 F：-0.09 点）：真引擎略逊（每层 1.4% 硬量化误差逐层累积，feats 到深层 rel ~36%），但量级可接受——int8 训练引擎"精度可行、速度不划算"（0.6x 慢）是最终结论；
+- **AMP 精度实测闭环**：10 epochs 与 fp32 差 0.002（噪声级），官方默认配置的"不掉点"说法实测支持。
+
 ### 三轮工程迭代的吞吐轨迹（batch=16, imgsz=320, 同机对比）
 
 | 版本 | engine ms/step | vs FP32 | 累计改动 |
