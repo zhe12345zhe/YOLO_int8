@@ -1,5 +1,0 @@
-path: D:/a/AI_project/YOLO_int8/phase2_ultralytics/data/synth
-train: images/train
-val: images/val
-names:
-  0: rect

@@ -44,6 +44,33 @@ def is_resumable(ckpt_path):
         return False
 
 
+def make_early_stop(name, patience=5, tol=2e-3):
+    """box loss 停滞早停: 连续 N 个 epoch box loss 变化 < tol 则 trainer.stop。"""
+    state = {"count": 0}
+
+    def cb(trainer):
+        import csv as _csv
+        import os as _os
+        f = _os.path.join("runs", "detect", "out", name, "results.csv")
+        if not _os.path.exists(f):
+            return
+        rows = list(_csv.DictReader(open(f)))
+        if len(rows) < patience + 1:
+            return
+        recent = [float(r["train/box_loss"]) for r in rows[-patience - 1:-1]]
+        delta = max(recent) - min(recent)
+        if delta < tol:
+            state["count"] += 1
+            print(f"[early-stop] box loss 停滞 {state['count']}/2 (delta {delta:.5f})")
+            if state["count"] >= 2:
+                trainer.stop = True
+                print("[early-stop] 触发停止")
+        else:
+            state["count"] = 0
+
+    return cb
+
+
 def run_one(name, quant_e, tag, args):
     last_ckpt = find_ckpt(name, "last.pt")
     best_ckpt = find_ckpt(name, "best.pt")
@@ -62,13 +89,21 @@ def run_one(name, quant_e, tag, args):
         model.add_callback("on_train_start",
                            lambda trainer: patch_qat(trainer.model, quant_act=True,
                                                      quant_e=quant_e, verbose=True))
+    if args.early_stop:
+        model.add_callback("on_train_epoch_end", make_early_stop(name))
     trained = False
     if can_resume or not best_ckpt:
         t0 = time.time()
-        model.train(data=args.data, epochs=args.epochs, imgsz=args.imgsz, batch=args.batch,
+        kw = dict(data=args.data, epochs=args.epochs, imgsz=args.imgsz, batch=args.batch,
                     device="0", workers=8, seed=0, project="out", name=name,
                     exist_ok=True, verbose=False, cache=False, amp=False,
                     resume=can_resume)
+        if args.lr0 is not None:
+            kw["lr0"] = args.lr0
+            kw["warmup_epochs"] = args.warmup_epochs
+        if args.optimizer is not None:
+            kw["optimizer"] = args.optimizer
+        model.train(**kw)
         print(f"[{tag} 微调] 用时 {time.time() - t0:.0f}s")
         trained = True
     net = model.trainer.model if trained else model.model
@@ -91,6 +126,10 @@ def main():
     ap.add_argument("--epochs", type=int, default=15)
     ap.add_argument("--batch", type=int, default=16)
     ap.add_argument("--imgsz", type=int, default=320)
+    ap.add_argument("--lr0", type=float, default=None, help="initial lr (large batch needs linear scaling)")
+    ap.add_argument("--warmup-epochs", type=float, default=5.0, help="warmup epochs")
+    ap.add_argument("--early-stop", action="store_true", help="box loss 停滞早停")
+    ap.add_argument("--optimizer", type=str, default=None, help="optimizer (auto 会用 LRFinder 覆盖 lr0, 显式指定如 SGD 才让 lr0 生效)")
     ap.add_argument("--stage", type=str, default="all",
                     choices=["all", "fp32", "wa", "wae"])
     args = ap.parse_args()

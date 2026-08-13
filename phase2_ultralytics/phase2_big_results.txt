@@ -1,0 +1,9 @@
+
+--- run @ 2026-08-10 14:12:54 data=/root/autodl-tmp/coco-full/data.yaml epochs=15 imgsz=320 batch=16
+FP32 0.3673 0.2450
+
+--- run @ 2026-08-10 17:59:22 data=/root/autodl-tmp/coco-full/data.yaml epochs=15 imgsz=320 batch=16
+QAT_W+A 0.3620 0.2394
+
+--- run @ 2026-08-10 22:25:53 data=/root/autodl-tmp/coco-full/data.yaml epochs=15 imgsz=320 batch=16
+QAT_W+A+E 0.3252 0.2110
