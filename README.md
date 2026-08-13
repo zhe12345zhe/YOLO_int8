@@ -35,6 +35,12 @@ Loss、BN、优化器更新、梯度存储保持 fp32——防误差累积。
 | QAT W+A | 0.2394（-0.6 点，几乎无损） | 7.4 it/s |
 | QAT W+A+E | 0.2110（-3.4 点，有损） | 6.8 it/s（慢 88%） |
 
+训练曲线（W+A+E 取前 15 epochs；FP32 逐 epoch 数据未保存，以其最终值虚线标注）：
+
+![COCO2017 训练 mAP 曲线](assets/coco2017_map.png)
+
+![COCO2017 训练损失曲线](assets/coco2017_loss.png)
+
 真 int8 训练引擎（cuDNN INT8 fprop + SwitchBack dW）：数值正确（误差 ~1.2%）但 0.6x 慢、掉 1.7-2.3 点，不如英伟达官方 FP32 引擎。
 
 **任务结论**：操作数量化可行且可验证（QAT W+A 几乎无损）；但 E 量化有损（-3.4 点）、训练显著变慢，生产路径应取伪量化 QAT + TensorRT INT8 推理部署。
@@ -49,7 +55,28 @@ Loss、BN、优化器更新、梯度存储保持 fp32——防误差累积。
 | QAT W+A | 0.1430 | +0.16 点（几乎无损） | ~18.4 min（1.70x） |
 | QAT W+A+E | 0.1237 | -1.77 点（有损） | ~20.8 min（1.93x） |
 
+![VisDrone 微调 mAP 曲线](assets/visdrone_map.png)
+
+![VisDrone 微调训练损失曲线](assets/visdrone_loss.png)
+
 三条核心结论在第三个数据集上全部复现：W+A 几乎无损、E 量化有损（-1.1/-3.4/-1.8 点跨 COCO128/COCO2017/VisDrone 一致）、WAE 训练慢 ~2 倍。
+
+## 训练权重（weights/）
+
+全部实验的最终权重（`weights/*.pt`，YOLOv8n 结构，可直接加载/部署）：
+
+| 权重 | 说明 | mAP50-95 |
+|---|---|---|
+| `big_fp32_coco_15ep.pt` | COCO2017 FP32 基线 | 0.2450 |
+| `big_qat_wa_coco_15ep.pt` | COCO2017 QAT W+A | 0.2394 |
+| `big_qat_wae_coco_15ep.pt` | COCO2017 QAT W+A+E | 0.2110 |
+| `cmp4_fp32_coco128_50ep.pt` | COCO128 FP32 基线 | 0.5264 |
+| `cmp4_engine_b_coco128_50ep.pt` | COCO128 真 int8 引擎（B）| 0.5097 |
+| `cmp4_engine_c_coco128_50ep.pt` | COCO128 真 int8 引擎（C）| 0.5033 |
+| `cmp6_gvq_coco128_50ep.pt` | COCO128 GVQ 对照 | 0.5108 |
+| `cmp_amp_coco128_10ep.pt` | COCO128 AMP 对照 | 0.4430 |
+| `cmp3_engine_b/c_coco128_50ep.pt` | COCO128 引擎早停备份 | — |
+| `vis_fp32/wa/wae_visdrone.pt` | VisDrone 微调三方案 | 0.1414 / 0.1430 / 0.1237 |
 
 ## 快速复现
 
