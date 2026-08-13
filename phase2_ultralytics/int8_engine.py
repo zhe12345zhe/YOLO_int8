@@ -321,21 +321,24 @@ class _Int8ConvCudnn(torch.autograd.Function):
         pad, stride = ctx.pad, ctx.stride
         N, C, H, W = xq.shape
         k = w.shape[2]
-        # dy 量化 scale: GVQ = per-output-channel (论文 2102.04782), 否则 per-tensor
-        if GVQ_ENABLED[0] and not _QUANTIZE_E[0]:
-            sdy = scale_absmax(grad_y, dim=(0, 2, 3))        # (CO,1,1)
-            if EMA_SCALE[0] and _use_ema(grad_y):
-                prev = _EMA_STATE.get(ctx.w_ptr)
+        # dy 量化 scale: GVQ = per-output-channel (论文 2102.04782, 大 bs 下稳定),
+        # 否则 per-tensor。GVQ 可与 E 量化共存: dW 用 per-channel dyq, dX 用 per-tensor dyq
+        sdy = scale_absmax(grad_y)                        # per-tensor (dX 用, 方案 C)
+        if EMA_SCALE[0] and _use_ema(grad_y):
+            prev = _EMA_STATE.get(ctx.w_ptr)
+            if prev is not None:
+                sdy = (1 - EMA_K * EMA_A) * prev + EMA_A * sdy
+            _EMA_STATE[ctx.w_ptr] = sdy.detach().clone()
+        if GVQ_ENABLED[0]:
+            sdy_c = scale_absmax(grad_y, dim=(0, 2, 3))   # (CO,1,1) per-channel (dW 用)
+            if EMA_SCALE[0]:
+                key = ctx.w_ptr
+                prev = _EMA_STATE.get(key)
                 if prev is not None:
-                    sdy = (1 - EMA_K * EMA_A) * prev + EMA_A * sdy
-                _EMA_STATE[ctx.w_ptr] = sdy.detach().clone()
+                    sdy_c = (1 - EMA_K * EMA_A) * prev + EMA_A * sdy_c
+                _EMA_STATE[key] = sdy_c.detach().clone()
         else:
-            sdy = scale_absmax(grad_y)                        # per-tensor 标量
-            if EMA_SCALE[0] and _use_ema(grad_y):
-                prev = _EMA_STATE.get(ctx.w_ptr)
-                if prev is not None:
-                    sdy = (1 - EMA_K * EMA_A) * prev + EMA_A * sdy
-                _EMA_STATE[ctx.w_ptr] = sdy.detach().clone()
+            sdy_c = None
         dyq = quant_tensor(grad_y, sdy)
         # SwitchBack dW: im2col(xq)ᵀ @ dyq
         col = F.unfold(F.pad(xq.float(), (pad[1], pad[1], pad[0], pad[0])),
